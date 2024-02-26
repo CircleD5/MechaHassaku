@@ -117,7 +117,9 @@ def createPngInfoView(pnginfoKV, icon_path):
     inline=False)
 
     ifile = discord.File(icon_path)
-    p_view.set_thumbnail(url="attachment://"+icon_path)
+    url = "attachment://" + icon_path
+    print(url)
+    p_view.set_thumbnail(url=url)
     return p_view, ifile
 
 
@@ -485,5 +487,5 @@ async def help(interaction: discord.Interaction):
 
         
 
-clienttoken = os.environ['TOKEN']
+clienttoken = os.environ["TOKEN"]
 client.run(clienttoken)
