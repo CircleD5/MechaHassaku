@@ -2,7 +2,7 @@
 """
 Created on Sun Feb 25 20:42:17 2024
 
-@author: manofculture & Circle D5
+@author: seesthenight & Circle D5
 """
 
 import os
@@ -31,6 +31,7 @@ client = commands.Bot(command_prefix='$',
 @client.event
 async def on_ready():
     try:
+        #Comment the following line to avoid getting ratelimited or potentially banned from Discord when restarting the bot very often for testing purposes
         await client.tree.sync()
         print("Synced slash commands")
     except Exception as e:
@@ -44,7 +45,7 @@ async def on_ready():
     print(f"Online as {client.user}")
     print("------------------------------------------------")
 
-
+#Populate generation info in an embed
 def createPngInfoView(pnginfoKV, icon_path):
     p_view = discord.Embed(title="Image Prompt & Settings :tools:",color=0x7101fa,)
     p_view.add_field(name='__Prompt__ :keyboard:', value=pnginfoKV['Prompt'], inline=False)
@@ -260,7 +261,7 @@ async def checkparameters(interaction: discord.Interaction,
             # Delete Temporary File
             os.unlink(tmp.name)
 
-
+    #TODO: add custom mechahassaku emojis
     except Exception as err:
         print(err)
         if isinstance(err,KeyError):
@@ -329,7 +330,7 @@ class helpbclass(discord.ui.View):
         # add the buttons to the view
 
         self.add_item(patreon_button)
-
+    #TODO: update the following info to make it relevant and useful now
     @discord.ui.button(label="Get Started",
                        emoji="🚀",
                        style=discord.ButtonStyle.blurple)
