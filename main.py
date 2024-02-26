@@ -163,18 +163,18 @@ async def analyzeAllAttachments(message):
         
         except Exception as err:
             print(err)
-            #eimageurl = "local path \\assets\\mecha_sorry.png"
+            eimageurl = "./assets/mecha_sorry.png"
 
             if isinstance(err,KeyError):
                 await msg.delete()
-                await msg.channel.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.") #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+                await msg.channel.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.", file=discord.File(eimageurl))
 
             elif isinstance(err,AttributeError):
                 await msg.delete()
-                await msg.channel.send(">>> > Sorry, the linked message is too old for me to access.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+                await msg.channel.send(">>> > Sorry, the linked message is too old for me to access.", file=discord.File(eimageurl))
             else:
                 await msg.delete()
-                await msg.channel.send(">>> > Some error due to my stupid masters' incompetence.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+                await msg.channel.send(">>> > Some error due to my stupid masters' incompetence.", file=discord.File(eimageurl))
 
                     
 
@@ -270,14 +270,13 @@ async def checkparameters(interaction: discord.Interaction,
     #TODO: add custom mechahassaku emojis
     except Exception as err:
         print(err)
-        #eimageurl = "local path to /assets/mecha_sorry.png"
+        eimageurl = "./assets/mecha_sorry.png"
         if isinstance(err,KeyError):
-            await interaction.followup.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.") #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
-
+            await interaction.followup.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format." ,file=discord.File(eimageurl))
         elif isinstance(err,AttributeError):
-            await interaction.followup.send(">>> > Sorry, the linked message is too old for me to access.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+            await interaction.followup.send(">>> > Sorry, the linked message is too old for me to access." ,file=discord.File(eimageurl))
         else:
-            await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+            await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence." ,file=discord.File(eimageurl))
 
 
 
