@@ -117,7 +117,7 @@ def createPngInfoView(pnginfoKV, icon_path):
     inline=False)
 
     ifile = discord.File(icon_path)
-    url = "attachment://" + icon_path
+    url = "attachment://" + icon_path[2:]
     print(url)
     p_view.set_thumbnail(url=url)
     return p_view, ifile
