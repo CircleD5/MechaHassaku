@@ -234,17 +234,20 @@ async def checkparameters(interaction: discord.Interaction,
         print("\nnumber of attachments: ", len(message.attachments))
         
         for attachment in message.attachments:
-            await analyzeAttachmentAndReply(attachment, interaction.followup.send)
+            try:
+               await analyzeAttachmentAndReply(attachment, interaction.followup.send)
+            except Exception as err:
+                if isinstance(err, MechaHassakuError):
+                    print(err)
+                    await interaction.followup.send(err.message, file=err.file)
+
             end_time = time.time()
             elapsed_time = end_time - start_time
             print(f"Execution time: {elapsed_time} seconds")
     except Exception as err:
-        if isinstance(err, MechaHassakuError):
-            print(err)
-            await interaction.followup.send(err.message, file=err.file)
-        else:
-            eimageurl = "./assets/mecha_sorry.png"
-            await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
+        print(err)
+        eimageurl = "./assets/mecha_sorry.png"
+        await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
                                    file=discord.File(eimageurl))
 
 
