@@ -17,7 +17,7 @@ import time
 from module.parser import parse_generation_parameters
 
 # Configuration Parameter
-auto_channel = '🤖│prompts-auto-share'
+auto_channel = 'testing'
 
 #####################
 
@@ -32,7 +32,7 @@ client = commands.Bot(command_prefix='$',
 async def on_ready():
     try:
         #Comment the following line to avoid getting ratelimited or potentially banned from Discord when restarting the bot very often for testing purposes
-        await client.tree.sync()
+        #await client.tree.sync()
         print("Synced slash commands")
     except Exception as e:
         print("Error syncing slash cmds:", e)
@@ -130,7 +130,7 @@ async def analyzeAllAttachments(message):
         if not attachment.content_type.startswith("image"):
             continue
         # send a message saying "could see sent image"
-        msg= await message.reply("analyzing....... <a:kururing:1113757022257696798> ", mention_author=False)
+        msg= await message.reply("analyzing....... <:kururing:1211463488916955256> ", mention_author=False)
         
         try:
             downloaded_file = await attachment.read()
@@ -150,7 +150,7 @@ async def analyzeAllAttachments(message):
             print("\n\n",ed)
             embed, ifile = createPngInfoView(ed, temp_file_name)
                     
-            await message.reply(embed=embed, file=ifile)
+            await message.channel.send(embed=embed, file=ifile)
             await msg.delete()
             
             os.remove(temp_file_name)
@@ -163,14 +163,20 @@ async def analyzeAllAttachments(message):
         
         except Exception as err:
             print(err)
+            #eimageurl = "local path \\assets\\mecha_sorry.png"
+
             if isinstance(err,KeyError):
-                await msg.edit(content=">>> :octagonal_sign: :c Couldn't get params from posted image, EXIF data missing or in the wrong format.")
+                await msg.delete()
+                await msg.channel.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.") #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
 
             elif isinstance(err,AttributeError):
-                await msg.edit(content=">>> :octagonal_sign: :c Linked message too old to be accessed by me")
+                await msg.delete()
+                await msg.channel.send(">>> > Sorry, the linked message is too old for me to access.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
             else:
-                await msg.edit(content=">>> :octagonal_sign: Some error due to 's incompetence")
-                
+                await msg.delete()
+                await msg.channel.send(">>> > Some error due to my stupid masters' incompetence.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
+
+                    
 
 
 
@@ -264,13 +270,14 @@ async def checkparameters(interaction: discord.Interaction,
     #TODO: add custom mechahassaku emojis
     except Exception as err:
         print(err)
+        #eimageurl = "local path to /assets/mecha_sorry.png"
         if isinstance(err,KeyError):
-            await interaction.followup.send(">>> :octagonal_sign: :c Couldn't get params from posted image, EXIF data missing or in the wrong format.")
+            await interaction.followup.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.") #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
 
         elif isinstance(err,AttributeError):
-            await interaction.followup.send(">>> :octagonal_sign: :c Linked message too old to be accessed by me.")
+            await interaction.followup.send(">>> > Sorry, the linked message is too old for me to access.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
         else:
-            await interaction.followup.send(">>> :octagonal_sign: Some error due to CircleD5's incompetence")
+            await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.")  #add ,file=discord.File(eimageurl, 'sorry.png') as an argument)
 
 
 
@@ -302,7 +309,8 @@ async def anonsend(interaction: discord.Interaction,
             os.unlink(tmp.name) 
         except Exception as e:
             print(e)
-            await interaction.response.send_message("Error: File not an image.", ephemeral=True)  
+            #eimageurl = "local path to /assets/mecha_confused.png"
+            await interaction.response.send_message("That file's not an image, or is it?", ephemeral=True)  #add ,file=discord.File(eimageurl, 'confused.png') as an argument)  
         
 
 
