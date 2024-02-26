@@ -17,7 +17,7 @@ import time
 from module.parser import parse_generation_parameters
 
 # Configuration Parameter
-auto_channel = 'prompts-auto-share'
+auto_channel = '🤖│prompts-auto-share'
 
 #####################
 
