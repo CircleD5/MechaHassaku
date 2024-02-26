@@ -9,16 +9,16 @@ import os
 import datetime
 import discord
 from discord.ext import commands
+from module.MechaHassakuException import MechaHassakuError
 import tempfile
 from PIL import Image
 import time
-
+import io
 
 from module.parser import parse_generation_parameters
 
 # Configuration Parameter
 auto_channel = '🤖│prompts-auto-share'
-
 #####################
 
 
@@ -123,6 +123,45 @@ def createPngInfoView(pnginfoKV, icon_path):
     p_view.set_thumbnail(url=url)
     return p_view, ifile
 
+async def analyzeAttachmentAndReply(attachment, response_destination):
+    if not attachment.content_type.startswith("image"):
+        return
+    try:
+        downloaded_byte = await attachment.read()
+        temp_file_name = ""
+        with io.BytesIO(downloaded_byte) as image_data:
+            with Image.open(image_data) as image:
+                temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
+                image.save(temp_file_name)
+                
+                data = image.info
+                ed = parse_generation_parameters(data["parameters"])
+                
+                #For debug
+                print("\n\n",ed)
+                
+                embed, ifile = createPngInfoView(ed, temp_file_name)
+                await response_destination(embed=embed, file=ifile)
+    except Exception as err:
+        print(err)
+        eimageurl = "./assets/mecha_sorry.png"
+        message = ""
+        if isinstance(err,KeyError):
+            message = ">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format."
+            sorry_image = discord.File(eimageurl)
+
+        elif isinstance(err,AttributeError):
+            message=">>> > Sorry, the linked message is too old for me to access."
+            sorry_image = discord.File(eimageurl)
+        else:
+            message=">>> > Some error due to my stupid masters' incompetence."
+            sorry_image = discord.File(eimageurl)
+        raise MechaHassakuError(message, sorry_image) from None
+    finally:
+        if temp_file_name is not None and os.path.isfile(temp_file_name):
+            os.remove(temp_file_name)
+  
+
 
 async def analyzeAllAttachments(message):
     for attachment in message.attachments:
@@ -130,54 +169,14 @@ async def analyzeAllAttachments(message):
         if not attachment.content_type.startswith("image"):
             continue
         # send a message saying "could see sent image"
-        msg= await message.reply("analyzing....... <:kururing:1211463488916955256> ", mention_author=False)
-        
+        msg= await message.reply("analyzing....... <:kururing:1211463488916955256> ", mention_author=False)  
         try:
-            downloaded_file = await attachment.read()
-            # Create Temporary File
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tmp.write(downloaded_file)
-            
-            # Open the image with pillow
-            image = Image.open(tmp.name)
-
-            temp_file_name = "./t"+str(int(round(time.time() * 1000)))+".png"
-            image.save(temp_file_name)
-
-            # Get all the metadata from the image
-            data = image.info
-            ed= parse_generation_parameters(data["parameters"])
-            print("\n\n",ed)
-            embed, ifile = createPngInfoView(ed, temp_file_name)
-                    
-            await message.channel.send(embed=embed, file=ifile)
-            await msg.delete()
-            
-            os.remove(temp_file_name)
-
-            # Close the image and delete the temporary file automatically
-            image.close()
-            
-            # Delete Temporary File
-            os.unlink(tmp.name)
-        
-        except Exception as err:
+            await analyzeAttachmentAndReply(attachment, message.channel.send)
+            await msg.delete() 
+        except MechaHassakuError as err:
             print(err)
-            eimageurl = "./assets/mecha_sorry.png"
-
-            if isinstance(err,KeyError):
-                await msg.delete()
-                await msg.channel.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.", file=discord.File(eimageurl))
-
-            elif isinstance(err,AttributeError):
-                await msg.delete()
-                await msg.channel.send(">>> > Sorry, the linked message is too old for me to access.", file=discord.File(eimageurl))
-            else:
-                await msg.delete()
-                await msg.channel.send(">>> > Some error due to my stupid masters' incompetence.", file=discord.File(eimageurl))
-
-                    
-
+            await msg.delete()
+            await msg.channel.send(err.message, file=err.file)
 
 
 @client.event
@@ -235,48 +234,21 @@ async def checkparameters(interaction: discord.Interaction,
         print("\nnumber of attachments: ", len(message.attachments))
         
         for attachment in message.attachments:
-            # ignore not image attachments
-            if not attachment.content_type.startswith("image"):
-                continue
-            downloaded_file = await attachment.read()
-            # Create Temporary File
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tmp.write(downloaded_file)
-            # Open the image with pillow
-            image = Image.open(tmp.name)
-            temp_file_name = "./t"+str(int(round(time.time() * 1000)))+".png"
-            image.save(temp_file_name)
-            # Get all the metadata from the image
-            data = image.info
-            print("\nMetadata:\n\n", data, "\n")
-            ed= parse_generation_parameters(data["parameters"])
-            print("\n\n",ed)
+            try:
+               await analyzeAttachmentAndReply(attachment, interaction.followup.send)
+            except Exception as err:
+                if isinstance(err, MechaHassakuError):
+                    print(err)
+                    await interaction.followup.send(err.message, file=err.file)
 
-            embed, ifile = createPngInfoView(ed, temp_file_name)   
-
-
-            await interaction.followup.send(embed=embed, file=ifile)
             end_time = time.time()
             elapsed_time = end_time - start_time
-
             print(f"Execution time: {elapsed_time} seconds")
-            os.remove(temp_file_name)
-            # Close the image and delete the temporary file automatically
-            image.close()
-            
-            # Delete Temporary File
-            os.unlink(tmp.name)
-
-    #TODO: add custom mechahassaku emojis
     except Exception as err:
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
-        if isinstance(err,KeyError):
-            await interaction.followup.send(">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format." ,file=discord.File(eimageurl))
-        elif isinstance(err,AttributeError):
-            await interaction.followup.send(">>> > Sorry, the linked message is too old for me to access." ,file=discord.File(eimageurl))
-        else:
-            await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence." ,file=discord.File(eimageurl))
+        await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
+                                   file=discord.File(eimageurl))
 
 
 
@@ -285,31 +257,24 @@ async def checkparameters(interaction: discord.Interaction,
 async def anonsend(interaction: discord.Interaction,
                           file: discord.Attachment):
     
-    
+    try:
         # Download the image to a temporary file
-        download_file = await file.read()
-        # Create a temporary file object
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tmp.write(download_file)
-        # Write the contents of the discord.File object to the temporary file object
-        try:
-            # Open the image with pillow
-            image = Image.open(tmp.name)
-            image.save("aimage.png")
-        
-            user_id = interaction.user.id
-            channel = await client.fetch_channel(interaction.channel_id)
-            afile = discord.File("aimage.png")
-            await interaction.response.send_message("Image sent anonymously!\n Only you can see this message :man_detective:", ephemeral=True)
-            m = await interaction.followup.send(file=afile)
-            
-            image.close()
+        download_byte = await file.read()
+        with io.BytesIO(download_byte) as image_data:
+            with Image.open(image_data) as image:
+                image.save("aimage.png")
+                await client.fetch_channel(interaction.channel_id)
+                afile = discord.File("aimage.png")
+                await interaction.response.send_message("Image sent anonymously!\n Only you can see this message :man_detective:", ephemeral=True)
+                m = await interaction.followup.send(file=afile)
+    except Exception as e:
+        print(e)
+        eimageurl = "./assets/confused.png"
+        await interaction.response.send_message("That file's not an image, or is it?", ephemeral=True 
+                                                ,file=discord.File(eimageurl))
+    finally:
+        if os.path.isfile("aimage.png"):
             os.remove("aimage.png")
-            os.unlink(tmp.name) 
-        except Exception as e:
-            print(e)
-            #eimageurl = "local path to /assets/mecha_confused.png"
-            await interaction.response.send_message("That file's not an image, or is it?", ephemeral=True)  #add ,file=discord.File(eimageurl, 'confused.png') as an argument)  
         
 
 
