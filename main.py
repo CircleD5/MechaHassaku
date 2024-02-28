@@ -150,7 +150,10 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
                 print("\n\n",ed)
                 
                 embed, ifile = createPngInfoView(ed, temp_file_name)
-                await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
+                if ephemeral:
+                    await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
+                else:
+                    await response_destination(embed=embed, file=ifile)
     except Exception as err:
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
