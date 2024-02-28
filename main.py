@@ -18,7 +18,8 @@ import io
 from module.parser import parse_generation_parameters
 
 # Configuration Parameter
-auto_channel = '🤖│prompts-auto-share'
+auto_channel_name = '🤖│prompts-auto-share'
+log_channel_name = '🤖│prompts-auto-share'
 #####################
 
 
@@ -123,7 +124,7 @@ def createPngInfoView(pnginfoKV, icon_path):
     p_view.set_thumbnail(url=url)
     return p_view, ifile
 
-async def analyzeAttachmentAndReply(attachment, response_destination):
+async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral= False):
     if not attachment.content_type.startswith("image"):
         return
     try:
@@ -141,7 +142,7 @@ async def analyzeAttachmentAndReply(attachment, response_destination):
                 print("\n\n",ed)
                 
                 embed, ifile = createPngInfoView(ed, temp_file_name)
-                await response_destination(embed=embed, file=ifile)
+                await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
     except Exception as err:
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
@@ -169,7 +170,7 @@ async def analyzeAllAttachments(message):
         if not attachment.content_type.startswith("image"):
             continue
         # send a message saying "could see sent image"
-        msg= await message.reply("analyzing....... <:kururing:1211463488916955256> ", mention_author=False)  
+        msg= await message.reply("analyzing....... <:kururing:1113757022257696798> ", mention_author=False)  
         try:
             await analyzeAttachmentAndReply(attachment, message.channel.send)
             await msg.delete() 
@@ -185,7 +186,7 @@ async def on_message(message):
   if message.author == client.user:
     return
   #ignore event from another channel
-  if str(message.channel) != auto_channel:
+  if str(message.channel) != auto_channel_name:
       return
   #ignore no attachments message
   if len(message.attachments)==0:
@@ -212,7 +213,7 @@ async def ping(interaction: discord.Interaction):
     name="checkparameters",
     description=
     "Get Stable Diffusion generation settings and prompts used of an image from a linked message")
-async def checkparameters(interaction: discord.Interaction,
+async def checkparameters(interaction: discord.Interaction, make_this_private: bool,
                           link: str):
 
     try:
@@ -228,18 +229,26 @@ async def checkparameters(interaction: discord.Interaction,
 
         # Get the message object from the link
         guild = client.get_guild(guild_id)
+        if make_this_private:
+            log_channel = discord.utils.get(guild.text_channels, name=log_channel_name)
+            await log_channel.send("I am on a top-secret mission :man_detective:")
+        
         channel = guild.get_channel(channel_id)
         message = await channel.fetch_message(message_id)
      
         print("\nnumber of attachments: ", len(message.attachments))
+        if len(message.attachments)==0:
+            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?"
+                                            , ephemeral=make_this_private)
+            return
         
         for attachment in message.attachments:
             try:
-               await analyzeAttachmentAndReply(attachment, interaction.followup.send)
+               await analyzeAttachmentAndReply(attachment, interaction.followup.send, ephemeral=make_this_private)
             except Exception as err:
                 if isinstance(err, MechaHassakuError):
                     print(err)
-                    await interaction.followup.send(err.message, file=err.file)
+                    await interaction.followup.send(err.message, file=err.file, ephemeral=make_this_private)
 
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -248,8 +257,7 @@ async def checkparameters(interaction: discord.Interaction,
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
         await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
-                                   file=discord.File(eimageurl))
-
+                                   file=discord.File(eimageurl),ephemeral=make_this_private)
 
 
 @client.tree.command(name="anonsend",
