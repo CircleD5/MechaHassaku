@@ -10,10 +10,10 @@ import datetime
 import discord
 from discord.ext import commands
 from module.MechaHassakuException import MechaHassakuError
-import tempfile
 from PIL import Image
 import time
 import io
+import math
 
 from module.parser import parse_generation_parameters
 
@@ -45,83 +45,92 @@ async def on_ready():
     print(f"Online as {client.user}")
     print("------------------------------------------------")
 
+
+Limit_Length = 1000
+# Insert a long string as an Embed field.(side effect)
+def add_big_field(embed:discord.Embed, name:str, txt:str,  inline = False):
+    if len(txt) < Limit_Length:
+        embed.add_field(name=name, value=txt, inline=inline)
+    else:
+        for i in range(math.ceil(len(txt)/Limit_Length)):
+            text_value = txt[i*Limit_Length:(i+1)*Limit_Length]
+            embed.add_field(name=name + f"({i})", value=text_value, inline=inline)
+
+
+
+
 #Populate generation info in an embed
 def createPngInfoView(pnginfoKV, icon_path):
-    p_view = discord.Embed(title="Image Prompt & Settings :tools:",color=0x7101fa,)
-    p_view.add_field(name='__Prompt__ :keyboard:', value=pnginfoKV['Prompt'], inline=False)
-    p_view.add_field(name='__Negative Prompt__ :no_entry_sign:',
-            value=pnginfoKV['Negative prompt'],
-            inline=False)
+    embed = discord.Embed(title="Image Prompt & Settings :tools:",color=0x7101fa,)
+    add_big_field(embed, '__Prompt__ :keyboard:', pnginfoKV['Prompt'], False )
+    add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', pnginfoKV['Negative prompt'], False )
     if 'Seed' in pnginfoKV:
-        p_view.add_field(name='__Seed__ :game_die:', value=pnginfoKV['Seed'], inline=True)
+        embed.add_field(name='__Seed__ :game_die:', value=pnginfoKV['Seed'], inline=True)
     if 'Sampler' in pnginfoKV:
-        p_view.add_field(name='__Sampler__ :cyclone:',
+        embed.add_field(name='__Sampler__ :cyclone:',
             value=pnginfoKV['Sampler'],
             inline=True)
     if 'CFG scale' in pnginfoKV:
-        p_view.add_field(name='__CFG Scale__ :level_slider:',
+        embed.add_field(name='__CFG Scale__ :level_slider:',
             value=pnginfoKV['CFG scale'],
             inline=True)
     if 'Size-1' in pnginfoKV and 'Size-2' in pnginfoKV:
-        p_view.add_field(name='__Image Size__ :straight_ruler:',
+        embed.add_field(name='__Image Size__ :straight_ruler:',
             value=pnginfoKV['Size-1']+"x"+pnginfoKV["Size-2"],
             inline=True)
     if 'Steps' in pnginfoKV:
-        p_view.add_field(name='__Steps__ :person_walking:', value=pnginfoKV['Steps'], inline=True)
+        embed.add_field(name='__Steps__ :person_walking:', value=pnginfoKV['Steps'], inline=True)
     if 'Clip skip' in pnginfoKV:
-        p_view.add_field(name='__Clip Skip__ :paperclip:',
+        embed.add_field(name='__Clip Skip__ :paperclip:',
                 value=pnginfoKV['Clip skip'],
                 inline=True)
 
     if 'Hires upscaler' in pnginfoKV:
-        p_view.add_field(name='__Hires. Fix__ :mag_right:',
+        embed.add_field(name='__Hires. Fix__ :mag_right:',
                         value='On  ✅',
                         inline=True)
-        p_view.add_field(name='__Hires. Upscaler__ :arrow_double_up:',
+        embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:',
                         value=pnginfoKV['Hires upscaler'],
                         inline=True)
 
         if 'Hires upscale' in pnginfoKV:
-            p_view.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:',
+            embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:',
                         value=pnginfoKV['Hires upscale'],
                         inline=True)
         if 'Denoising strength' in pnginfoKV:
-            p_view.add_field(name='__Denoising Strength__ :muscle:',
+            embed.add_field(name='__Denoising Strength__ :muscle:',
                         value=pnginfoKV['Denoising strength'],
                         inline=True)
 
     else:
-        p_view.add_field(name='__Hires. Fix__ :mag_right:',
+        embed.add_field(name='__Hires. Fix__ :mag_right:',
                         value='Off  ❌',
                         inline=True)
     if 'Model' in pnginfoKV:
         if 'XL' in pnginfoKV['Model'] or 'SDXL' in pnginfoKV['Model']:
-            p_view.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:',
+            embed.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:',
                             value=pnginfoKV['Model'],
                             inline=True)
         else:
-            p_view.add_field(name='__Model__ :art:',
+            embed.add_field(name='__Model__ :art:',
                                 value=pnginfoKV['Model'],
                                 inline=True)
 
 
     if 'Model hash' in pnginfoKV:
-        p_view.add_field(name='__Model Hash__ :key:',
+        embed.add_field(name='__Model Hash__ :key:',
                             value=pnginfoKV['Model hash'],
                             inline=True)
 
     delkeys = ['Prompt','Negative prompt', 'Steps', 'Seed', 'Sampler', 'CFG scale', 'Size-1','Size-2', 'Clip skip', 'Model', 'Model hash', 'Hires upscaler', 'Hires upscale', 'Denoising strength']
-    p_view.add_field(name='Other Params :gear:',
-    value=', '.join(
-        f'__{key}__: {value}'
-        for key, value in pnginfoKV.items() if key not in delkeys),
-    inline=False)
-
+    other_parameters = ', '.join(f'__{key}__: {value}' 
+                                 for key, value in pnginfoKV.items() if key not in delkeys)
+    add_big_field(embed, 'Other Params :gear:', other_parameters, False )
     ifile = discord.File(icon_path)
     url = "attachment://" + icon_path[2:]
     print(url)
-    p_view.set_thumbnail(url=url)
-    return p_view, ifile
+    embed.set_thumbnail(url=url)
+    return embed, ifile
 
 async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral= False):
     if not attachment.content_type.startswith("image"):
