@@ -18,8 +18,8 @@ import io
 from module.parser import parse_generation_parameters
 
 # Configuration Parameter
-auto_channel = '🤖│prompts-auto-share'
-log_channel = '🤖│prompts-auto-share'
+auto_channel_name = '🤖│prompts-auto-share'
+log_channel_name = '🤖│prompts-auto-share'
 #####################
 
 
@@ -170,7 +170,7 @@ async def analyzeAllAttachments(message):
         if not attachment.content_type.startswith("image"):
             continue
         # send a message saying "could see sent image"
-        msg= await message.reply("analyzing....... <:kururing:1211463488916955256> ", mention_author=False)  
+        msg= await message.reply("analyzing....... <:kururing:1113757022257696798> ", mention_author=False)  
         try:
             await analyzeAttachmentAndReply(attachment, message.channel.send)
             await msg.delete() 
@@ -186,7 +186,7 @@ async def on_message(message):
   if message.author == client.user:
     return
   #ignore event from another channel
-  if str(message.channel) != auto_channel:
+  if str(message.channel) != auto_channel_name:
       return
   #ignore no attachments message
   if len(message.attachments)==0:
@@ -233,6 +233,9 @@ async def checkparameters(interaction: discord.Interaction,
         message = await channel.fetch_message(message_id)
      
         print("\nnumber of attachments: ", len(message.attachments))
+        if len(message.attachments)==0:
+            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?")
+            return
         
         for attachment in message.attachments:
             try:
@@ -273,13 +276,16 @@ async def privatecheckparameters(interaction: discord.Interaction,
         # Get the message object from the link
         guild = client.get_guild(guild_id)
 
-        log_channel = discord.utils.get(guild.text_channels, name=log_channel)
+        log_channel = discord.utils.get(guild.text_channels, name=log_channel_name)
         await log_channel.send("I am on a top-secret mission :man_detective:")
 
         channel = guild.get_channel(channel_id)
         message = await channel.fetch_message(message_id)
      
         print("\nnumber of attachments: ", len(message.attachments))
+        if len(message.attachments)==0:
+            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?")
+            return
         
         for attachment in message.attachments:
             try:
