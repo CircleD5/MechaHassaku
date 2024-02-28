@@ -213,7 +213,7 @@ async def ping(interaction: discord.Interaction):
     name="checkparameters",
     description=
     "Get Stable Diffusion generation settings and prompts used of an image from a linked message")
-async def checkparameters(interaction: discord.Interaction,
+async def checkparameters(interaction: discord.Interaction, make_this_private: bool,
                           link: str):
 
     try:
@@ -229,21 +229,26 @@ async def checkparameters(interaction: discord.Interaction,
 
         # Get the message object from the link
         guild = client.get_guild(guild_id)
+        if make_this_private:
+            log_channel = discord.utils.get(guild.text_channels, name=log_channel_name)
+            await log_channel.send("I am on a top-secret mission :man_detective:")
+        
         channel = guild.get_channel(channel_id)
         message = await channel.fetch_message(message_id)
      
         print("\nnumber of attachments: ", len(message.attachments))
         if len(message.attachments)==0:
-            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?")
+            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?"
+                                            , ephemeral=make_this_private)
             return
         
         for attachment in message.attachments:
             try:
-               await analyzeAttachmentAndReply(attachment, interaction.followup.send)
+               await analyzeAttachmentAndReply(attachment, interaction.followup.send, ephemeral=make_this_private)
             except Exception as err:
                 if isinstance(err, MechaHassakuError):
                     print(err)
-                    await interaction.followup.send(err.message, file=err.file)
+                    await interaction.followup.send(err.message, file=err.file, ephemeral=make_this_private)
 
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -252,58 +257,8 @@ async def checkparameters(interaction: discord.Interaction,
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
         await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
-                                   file=discord.File(eimageurl))
+                                   file=discord.File(eimageurl),ephemeral=make_this_private)
 
-@client.tree.command(
-    name="privatecheckparameters",
-    description=
-    "Private version of checkparameters. Assign MechaHassaku to carry out a top-secret mission!")
-async def privatecheckparameters(interaction: discord.Interaction,
-                          link: str):
-
-    try:
-        await interaction.response.defer(ephemeral=True)
-        start_time = time.time()
-        # Split the link into parts
-        parts = link.split('/')
-        guild_id = int(parts[-3])
-        channel_id = int(parts[-2])
-        message_id = int(parts[-1])
-
-        print("\nguild id:", guild_id, "\nchannel id:", channel_id, "\nmessage id:", message_id)
-        print("\nuser id:",interaction.user.id, "\nuser name:", interaction.user.name)
-
-        # Get the message object from the link
-        guild = client.get_guild(guild_id)
-
-        log_channel = discord.utils.get(guild.text_channels, name=log_channel_name)
-        await log_channel.send("I am on a top-secret mission :man_detective:")
-
-        channel = guild.get_channel(channel_id)
-        message = await channel.fetch_message(message_id)
-     
-        print("\nnumber of attachments: ", len(message.attachments))
-        if len(message.attachments)==0:
-            await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?")
-            return
-        
-        for attachment in message.attachments:
-            try:
-               await analyzeAttachmentAndReply(attachment, interaction.followup.send, ephemeral=True)
-            except Exception as err:
-                if isinstance(err, MechaHassakuError):
-                    print(err)
-                    await interaction.followup.send(err.message, file=err.file, ephemeral=True)
-
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            print(f"Execution time: {elapsed_time} seconds")
-    except Exception as err:
-        print(err)
-        eimageurl = "./assets/mecha_sorry.png"
-        await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
-                                   file=discord.File(eimageurl),
-                                   ephemeral=True)
 
 @client.tree.command(name="anonsend",
                      description="Send images anonymously, if you're shy")
