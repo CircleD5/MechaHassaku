@@ -19,7 +19,6 @@ from module.parser import parse_generation_parameters
 
 # Configuration Parameter
 auto_channel_name = '🤖│prompts-auto-share'
-log_channel_name = '🤖│prompts-auto-share'
 #####################
 
 
@@ -213,11 +212,11 @@ async def ping(interaction: discord.Interaction):
     name="checkparameters",
     description=
     "Get Stable Diffusion generation settings and prompts used of an image from a linked message")
-async def checkparameters(interaction: discord.Interaction, make_this_private: bool,
+async def checkparameters(interaction: discord.Interaction, private_mode: bool,
                           link: str):
 
     try:
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=private_mode)
         start_time = time.time()
         # Split the link into parts
         parts = link.split('/')
@@ -228,27 +227,23 @@ async def checkparameters(interaction: discord.Interaction, make_this_private: b
         print("\nguild id:", guild_id, "\nchannel id:", channel_id, "\nmessage id:", message_id)
 
         # Get the message object from the link
-        guild = client.get_guild(guild_id)
-        if make_this_private:
-            log_channel = discord.utils.get(guild.text_channels, name=log_channel_name)
-            await log_channel.send("I am on a top-secret mission :man_detective:")
-        
+        guild = client.get_guild(guild_id)        
         channel = guild.get_channel(channel_id)
         message = await channel.fetch_message(message_id)
      
         print("\nnumber of attachments: ", len(message.attachments))
         if len(message.attachments)==0:
             await interaction.followup.send("There's nothing attached, you know<:TeriDerp:1104059514501746689>?"
-                                            , ephemeral=make_this_private)
+                                            , ephemeral=private_mode)
             return
         
         for attachment in message.attachments:
             try:
-               await analyzeAttachmentAndReply(attachment, interaction.followup.send, ephemeral=make_this_private)
+               await analyzeAttachmentAndReply(attachment, interaction.followup.send, ephemeral=private_mode)
             except Exception as err:
                 if isinstance(err, MechaHassakuError):
                     print(err)
-                    await interaction.followup.send(err.message, file=err.file, ephemeral=make_this_private)
+                    await interaction.followup.send(err.message, file=err.file, ephemeral=private_mode)
 
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -257,7 +252,7 @@ async def checkparameters(interaction: discord.Interaction, make_this_private: b
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
         await interaction.followup.send(">>> > Some error due to my stupid masters' incompetence.", 
-                                   file=discord.File(eimageurl),ephemeral=make_this_private)
+                                   file=discord.File(eimageurl),ephemeral=private_mode)
 
 
 @client.tree.command(name="anonsend",
