@@ -59,7 +59,7 @@ async def on_presence_update(before, after):
         guild = client.get_guild(guild_id)
         role = get(guild.roles, name="Big sis is watching you")
         if not role:
-            role = await guild.create_role(name="Big sis is watching you", colour=discord.Colour(0xabcdef), permissions=discord.Permissions(permissions=8), hoist=True)
+            role = await guild.create_role(name="Big sis is watching you", colour=discord.Colour(0xabcdef), permissions=discord.Permissions(permissions=0), hoist=True)
             print(f"Created new role: {role.name}")
 
     except Exception as e:
