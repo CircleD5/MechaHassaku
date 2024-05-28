@@ -46,6 +46,35 @@ async def on_ready():
     print("------------------------------------------------")
 
 
+#Detect if Ikena goes offline and change roles
+@client.event
+async def on_presence_update(before, after):
+    #set user to ikena in the secret env
+    tracked_user_id = 1234567890
+    #set the guild (server) to ikena's server in the secret env
+    guild_id = 1234567890
+    try:
+        #check if role already exists, if not create the role
+        guild = client.get_guild(guild_id)
+        role = get(guild.roles, name="Big sis is watching you")
+        if not role:
+            role = await guild.create_role(name="Big sis is watching you", colour=discord.Colour(0xabcdef), permissions=discord.Permissions(permissions=8), hoist=True)
+            print(f"Created new role: {role.name}")
+
+    except Exception as e:
+        print("Error creating role", e)
+
+    #fetch the client's id to award itself a server role or remove a role depending on the case
+    bot = guild.get_member(client.user.id)
+    if after.id == tracked_user_id:
+        if after.status == discord.Status.offline:
+            await bot.add_roles(role)
+    
+        elif after.status == discord.Status.online:
+            await bot.remove_roles(role)
+
+
+
 Limit_Length = 1000
 # Insert a long string as an Embed field.(side effect)
 def add_big_field(embed:discord.Embed, name:str, txt:str,  inline = False):
