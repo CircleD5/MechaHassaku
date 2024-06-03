@@ -183,7 +183,7 @@ async def analyzeAllAttachments(message):
         if not attachment.content_type.startswith("image"):
             continue
         # send a message saying "could see sent image"
-        msg= await message.reply("analyzing....... <:kururing:1113757022257696798> ", mention_author=False)  
+        msg= await message.reply("analyzing....... <a:kururing:1113757022257696798> ", mention_author=False)  
         try:
             await analyzeAttachmentAndReply(attachment, message.channel.send)
             await msg.delete() 
@@ -217,7 +217,7 @@ async def modelRequestHandler(message, response_destination):
     for attachment in message.attachments:
         # ignore not image attachments
         if attachment.content_type.startswith("image"):
-            msg= await message.reply("Taking a look....... <:kururing:1113757022257696798> ")  
+            msg= await message.reply("Taking a look....... <a:kururing:1113757022257696798> ")  
             try:
                 downloaded_byte = await attachment.read()
                 temp_file_name = ""
