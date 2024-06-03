@@ -233,7 +233,7 @@ async def modelRequestHandler(message, response_destination):
                         #For debug
                         print("\n\n",ed)
                         
-                        await response_destination(f">>> The model used appears to be `{ed['Model']}` with the hash `{ed['Model hash']}` according to the image's metadata.")
+                        await response_destination(f">>> The model used appears to be `{ed['Model']}` with the hash `{ed['Model hash']}` according to the image's metadata.\nTip: If you want all the gen parameters, run /checkparameters with a link to the message containing this image!")
                         await msg.delete()
             except Exception as err:
                 await msg.delete()
