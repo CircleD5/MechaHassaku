@@ -236,6 +236,7 @@ async def modelRequestHandler(message, response_destination):
                         await response_destination(f">>> The model used appears to be `{ed['Model']}` with the hash `{ed['Model hash']}` according to the image's metadata.")
                         await msg.delete()
             except Exception as err:
+                await msg.delete()
                 print("Model Request Handler error:", err)
             
             finally:
