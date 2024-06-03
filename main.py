@@ -6,6 +6,7 @@ Created on Sun Feb 25 20:42:17 2024
 """
 
 import os
+import re
 import datetime
 import discord
 from discord.ext import commands
@@ -45,35 +46,6 @@ async def on_ready():
     print("Bot successfully deployed\nSession started at " + str(datetime.datetime.now()))
     print(f"Online as {client.user}")
     print("------------------------------------------------")
-
-
-#Detect if Ikena goes offline and change roles
-@client.event
-async def on_presence_update(before, after):
-    #set user to ikena in the secret env
-    tracked_user_id = 1234567890
-    #set the guild (server) to ikena's server in the secret env
-    guild_id = 1234567890
-    try:
-        #check if role already exists, if not create the role
-        guild = client.get_guild(guild_id)
-        role = get(guild.roles, name="Big sis is watching you")
-        if not role:
-            role = await guild.create_role(name="Big sis is watching you", colour=discord.Colour(0xabcdef), permissions=discord.Permissions(permissions=0), hoist=True)
-            print(f"Created new role: {role.name}")
-
-    except Exception as e:
-        print("Error creating role", e)
-
-    #fetch the client's id to award itself a server role or remove a role depending on the case
-    bot = guild.get_member(client.user.id)
-    if after.id == tracked_user_id:
-        if after.status == discord.Status.offline:
-            await bot.add_roles(role)
-    
-        elif after.status == discord.Status.online:
-            await bot.remove_roles(role)
-
 
 
 Limit_Length = 1000
@@ -220,12 +192,62 @@ async def analyzeAllAttachments(message):
             await msg.delete()
             await msg.channel.send(err.message, file=err.file)
 
+async def modelRequestDetector(message):
+    model_question_pattern = re.compile(
+    r"(which|what|which\s+one|what\s+one|which\s+model|what\s+model|model\s+pls|model\s+please|model\s+u\s+used)",
+    re.IGNORECASE
+    
+    )
+    if model_question_pattern.search(message.content):
+        print("triggered") #debugging
+        # Check if the message is a reply to another message
+        if message.reference is not None:
+            # Access the original message to which the user is replying and asking for which model they used
+            referenced_message = await message.channel.fetch_message(message.reference.message_id)
+            print("got reference message") #debugging
+            # Check for specific keywords in the content of the reply
+            print("called handler function") #debugging
+            await modelRequestHandler(referenced_message, referenced_message.channel.send)
+    else:
+        print("no") #debugging
+        return
+
+async def modelRequestHandler(message, response_destination):
+    print("started handler function") #debugging
+    for attachment in message.attachments:
+        # ignore not image attachments
+        if attachment.content_type.startswith("image"):
+            msg= await message.reply("Taking a look....... <:kururing:1113757022257696798> ")  
+            try:
+                downloaded_byte = await attachment.read()
+                temp_file_name = ""
+                with io.BytesIO(downloaded_byte) as image_data:
+                    with Image.open(image_data) as image:
+                        temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
+                        image.save(temp_file_name)
+                        print("saved image locally") #debugging
+                        
+                        data = image.info
+                        ed = parse_generation_parameters(data["parameters"])
+                        print("got metadata")
+                        #For debug
+                        print("\n\n",ed)
+                        
+                        await response_destination(f">>> The model used appears to be `{ed['Model']}` with the hash `{ed['Model hash']}` according to the image's metadata.")
+                        await msg.delete()
+            except Exception as err:
+                print("Model Request Handler error:", err)
+            
+            finally:
+                if temp_file_name is not None and os.path.isfile(temp_file_name):
+                    os.remove(temp_file_name)
 
 @client.event
 async def on_message(message):
   # ignore bot message
   if message.author == client.user:
     return
+  await modelRequestDetector(message)
   #ignore event from another channel
   if str(message.channel) != auto_channel_name:
       return
@@ -238,8 +260,7 @@ async def on_message(message):
   await analyzeAllAttachments(message)
   end_time = time.time()
   elapsed_time = end_time - start_time
-  print(f"Execution time: {elapsed_time} seconds")
-      
+  print(f"Execution time: {elapsed_time} seconds") 
 
 
 @client.tree.command(name="ping",

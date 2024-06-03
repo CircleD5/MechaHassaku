@@ -2,7 +2,7 @@
 """
 Created on Sun Feb 25 20:42:17 2024
 
-@author: manofculture & Circle D5
+@author: seesthenight & Circle D5
 """
 
 import re
