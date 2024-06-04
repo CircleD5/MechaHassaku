@@ -194,7 +194,7 @@ async def analyzeAllAttachments(message):
 
 async def modelRequestDetector(message):
     model_question_pattern = re.compile(
-    r"(which|what|which\s+one|what\s+one|which\s+model|what\s+model|model\s+pls|model\s+please|model\s+u\s+used)",
+    r"(which\s+one|which\s+model|the\s+model|what\s+model|model\s+pls|model\s+please)",
     re.IGNORECASE
     
     )
