@@ -325,6 +325,11 @@ async def anonsend(interaction: discord.Interaction,
                           file: discord.Attachment):
     
     try:
+        # Get user_id for security
+        user_id = interaction.user.id
+        # Fetch channnel to BotLogChannel
+        channel = await client.fetch_channel(1120267966731259984)  
+
         # Download the image to a temporary file
         download_byte = await file.read()
         with io.BytesIO(download_byte) as image_data:
@@ -334,6 +339,9 @@ async def anonsend(interaction: discord.Interaction,
                 afile = discord.File("aimage.png")
                 await interaction.response.send_message("Image sent anonymously!\n Only you can see this message :man_detective:", ephemeral=True)
                 m = await interaction.followup.send(file=afile)
+                # For security, output user id  to BotLogChannel
+                ml = m.jump_url
+                await channel.send(f"User ID {user_id} sent an image anonymously! Jump to message: {ml}")
     except Exception as e:
         print(e)
         eimageurl = "./assets/confused.png"
