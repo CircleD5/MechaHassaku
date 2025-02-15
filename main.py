@@ -7,6 +7,7 @@ Created on Sun Feb 25 20:42:17 2024
 
 import os
 import re
+import pprint
 import datetime
 import discord
 from discord.ext import commands
@@ -63,7 +64,40 @@ def add_big_field(embed:discord.Embed, name:str, txt:str,  inline = False):
 
 #Populate generation info in an embed
 def createPngInfoView(pnginfoKV, icon_path):
-    embed = discord.Embed(title="Image Prompt & Settings :tools:", color=0x7101fa)
+    tags = []
+
+    if 'Prompt' in pnginfoKV:
+        tags.append('WEBUI')
+    if 'ComfyUI AI Params' in pnginfoKV:
+        tags.append('COMFY UI')
+    if 'Novel AI Params' in pnginfoKV:
+        tags.append('NOVEL AI')
+
+    model = pnginfoKV['Model'].lower()
+    if 'illustrious' in model:
+        tags.append('ILLUSTRIOUS')
+    elif 'xl' in model:
+        tags.append('SDXL')
+    elif 'pony' in model:
+        tags.append('PONY')
+    elif 'flux' in model:
+        tags.append('FLUX')
+
+    prompt = pnginfoKV.get('Prompt', '').lower() 
+    if 'lora' in prompt:
+        tags.append('LORA')
+    elif 'locon' in prompt:
+        tags.append('LOCON')
+    elif 'loha' in prompt:
+        tags.append('LOHA')
+
+    if 'Hires upscaler' in pnginfoKV:
+        tags.append('HIRES')
+
+    title_tags = "   ".join(f"` {tag} `" for tag in tags) if tags else "FAILED TO GET TAGS"
+
+    embed = discord.Embed(title=f"Image Prompt & Settings :tools:\n{title_tags}", color=0x7101fa)
+
     
     # Automatic1111 用のパラメータ（存在する場合のみ表示）
     if 'Prompt' in pnginfoKV:
@@ -84,15 +118,13 @@ def createPngInfoView(pnginfoKV, icon_path):
         embed.add_field(name='__Clip Skip__ :paperclip:', value=pnginfoKV['Clip skip'], inline=True)
 
     if 'Hires upscaler' in pnginfoKV:
-        embed.add_field(name='__Hires. Fix__ :mag_right:', value='On  ✅', inline=True)
         embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:', value=pnginfoKV['Hires upscaler'], inline=True)
 
         if 'Hires upscale' in pnginfoKV:
             embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:', value=pnginfoKV['Hires upscale'], inline=True)
         if 'Denoising strength' in pnginfoKV:
             embed.add_field(name='__Denoising Strength__ :muscle:', value=pnginfoKV['Denoising strength'], inline=True)
-    else:
-        embed.add_field(name='__Hires. Fix__ :mag_right:', value='Off  ❌', inline=True)
+
     if 'Model' in pnginfoKV:
         if 'XL' in pnginfoKV['Model'] or 'SDXL' in pnginfoKV['Model']:
             embed.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:', value=pnginfoKV['Model'], inline=True)
@@ -114,9 +146,6 @@ def createPngInfoView(pnginfoKV, icon_path):
     # その他のパラメータ（自動生成されたパラメータ以外）
     delkeys = ['Prompt', 'Negative prompt', 'Steps', 'Seed', 'Sampler', 'CFG scale', 'Size-1', 'Size-2', 
                'Clip skip', 'Model', 'Model hash', 'Hires upscaler', 'Hires upscale', 'Denoising strength']
-    other_parameters = ', '.join(f'__{key}__: {value}' for key, value in pnginfoKV.items() if key not in delkeys)
-    if other_parameters:
-        add_big_field(embed, 'Other Params :gear:', other_parameters, False)
     
     ifile = discord.File(icon_path)
     url = "attachment://" + icon_path[2:]
@@ -128,6 +157,7 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
     if not attachment.content_type.startswith("image"):
         return
     temp_file_name = None
+    text_file_name = None
     try:
         downloaded_byte = await attachment.read()
         with io.BytesIO(downloaded_byte) as image_data:
@@ -155,14 +185,28 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
                 if "Comment" in data:
                     ed["Novel AI Params"] = data["Comment"]
                 
+                # Write data to a text file
+                text_file_name = f"./params_{int(time.time())}.txt"
+                with open(text_file_name, "w", encoding="utf-8") as f:
+                    pp = pprint.PrettyPrinter(stream=f, indent=4)
+                    pp.pprint(data)
+
+
+
                 # For debug
                 print("\n\n", ed)
                 
                 embed, ifile = createPngInfoView(ed, temp_file_name)
+                text_file = discord.File(text_file_name, filename="fullParameters.txt")
+                
                 if ephemeral:
                     await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
+                    await response_destination(file=text_file, ephemeral=ephemeral)  # Send text file separately
                 else:
                     await response_destination(embed=embed, file=ifile)
+                    await response_destination(file=text_file)  # Send text file separately
+
+                    
     except Exception as err:
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
@@ -178,9 +222,11 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
             sorry_image = discord.File(eimageurl)
         raise MechaHassakuError(message, sorry_image) from None
     finally:
+        # Cleanup temporary files
         if temp_file_name is not None and os.path.isfile(temp_file_name):
             os.remove(temp_file_name)
-
+        if text_file_name is not None and os.path.isfile(text_file_name):
+            os.remove(text_file_name)
 
 async def analyzeAllAttachments(message):
     for attachment in message.attachments:
