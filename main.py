@@ -152,28 +152,40 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
             with Image.open(image_data) as image:
                 temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
                 image.save(temp_file_name)
-
                 data = image.info
 
-                # No Parameters
+                # パラメータが全く無い場合はメッセージを返信
                 if not any(key in data for key in ["parameters", "prompt", "Comment"]):
                     await response_destination("No generation parameters found in this image.")
                     return
 
-                # WebUI
+                # WebUIの場合：parametersキーが存在すればparse_generation_parameters()で解析
                 if "parameters" in data:
                     ed = parse_generation_parameters(data["parameters"])
                 else:
                     ed = {}
 
-                # ComfyUI 
-                if "prompt" in data:
-                    ed["ComfyUI AI Params"] = data["prompt"]
-                # NovelAI
+                # Novel AIの場合：data に "Comment" が存在すれば Novel AIと判断し各キーをマッピング
                 if "Comment" in data:
-                    ed["Novel AI Params"] = data["Comment"]
+                    ed["Prompt"] = data.get("prompt", "")
+                    if "width" in data and "height" in data:
+                        ed["Size-1"] = data["width"]
+                        ed["Size-2"] = data["height"]
+                    if "scale" in data:
+                        ed["CFG scale"] = data["scale"]
+                    if "seed" in data:
+                        ed["Seed"] = data["seed"]
+                    if "steps" in data:
+                        ed["Steps"] = data["steps"]
+                    if "sampler" in data:
+                        ed["Sampler"] = data["sampler"]
+                    if "uc" in data:
+                        ed["Negative prompt"] = data["uc"]
+                # ComfyUIの場合：Novel AIの"Comment"がないが"prompt"が存在する場合
+                elif "prompt" in data:
+                    ed["ComfyUI AI Params"] = data["prompt"]
 
-                # Write data to a text file
+                # 書き出し用にテキストファイルを生成
                 text_file_name = f"./params_{int(time.time())}.txt"
                 with open(text_file_name, "w", encoding="utf-8") as f:
                     pp = pprint.PrettyPrinter(stream=f, indent=4)
@@ -187,11 +199,10 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
 
                 if ephemeral:
                     await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
-                    await response_destination(file=text_file, ephemeral=ephemeral)  # Send text file separately
+                    await response_destination(file=text_file, ephemeral=ephemeral)
                 else:
                     await response_destination(embed=embed, file=ifile)
-                    await response_destination(file=text_file)  # Send text file separately
-
+                    await response_destination(file=text_file)
     except Exception as err:
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
@@ -214,6 +225,7 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
             os.remove(temp_file_name)
         if text_file_name is not None and os.path.isfile(text_file_name):
             os.remove(text_file_name)
+
 
 
 async def analyzeAllAttachments(message):
