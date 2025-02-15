@@ -125,7 +125,7 @@ def createPngInfoView(pnginfoKV, icon_path):
     return embed, ifile
 
 
-async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral= False):
+async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=False):
     if not attachment.content_type.startswith("image"):
         return
     try:
@@ -137,10 +137,20 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
                 image.save(temp_file_name)
                 
                 data = image.info
-                ed = parse_generation_parameters(data["parameters"])
+                #  WEBUI
+                if "parameters" in data:
+                    ed = parse_generation_parameters(data["parameters"])
+                else:
+                    ed = {}
+                # ComfyUI
+                if "prompt" in data:
+                    ed["ComfyUI AI Params"] = data["prompt"]
+                # NovelAI
+                if "Comment" in data:
+                    ed["Novel AI Params"] = data["Comment"]
                 
-                #For debug
-                print("\n\n",ed)
+                # For debug
+                print("\n\n", ed)
                 
                 embed, ifile = createPngInfoView(ed, temp_file_name)
                 if ephemeral:
@@ -151,21 +161,19 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
         print(err)
         eimageurl = "./assets/mecha_sorry.png"
         message = ""
-        if isinstance(err,KeyError):
+        if isinstance(err, KeyError):
             message = ">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format."
             sorry_image = discord.File(eimageurl)
-
-        elif isinstance(err,AttributeError):
-            message=">>> > Sorry, the linked message is too old for me to access."
+        elif isinstance(err, AttributeError):
+            message = ">>> > Sorry, the linked message is too old for me to access."
             sorry_image = discord.File(eimageurl)
         else:
-            message=">>> > Some error due to my stupid masters' incompetence."
+            message = ">>> > Some error due to my stupid masters' incompetence."
             sorry_image = discord.File(eimageurl)
         raise MechaHassakuError(message, sorry_image) from None
     finally:
         if temp_file_name is not None and os.path.isfile(temp_file_name):
             os.remove(temp_file_name)
-  
 
 
 async def analyzeAllAttachments(message):
