@@ -56,91 +56,91 @@ def add_big_field(embed: discord.Embed, name: str, txt: str, inline=False):
             text_value = txt[i * Limit_Length:(i + 1) * Limit_Length]
             embed.add_field(name=name + f"({i})", value=text_value, inline=inline)
 
-async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=False):
-    if not attachment.content_type.startswith("image"):
-        return
-    temp_file_name = None
-    text_file_name = None
-    try:
-        downloaded_byte = await attachment.read()
-        with io.BytesIO(downloaded_byte) as image_data:
-            with Image.open(image_data) as image:
-                temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
-                image.save(temp_file_name)
-                data = image.info
+def createPngInfoView(pnginfoKV, icon_path):
+    tags = []
 
-                # パラメータが全く無い場合はメッセージを返信
-                if not any(key in data for key in ["parameters", "prompt", "Comment"]):
-                    await response_destination("No generation parameters found in this image.")
-                    return
+    # WEBUI, ComfyUI, NovelAI 判定
+    if 'Prompt' in pnginfoKV:
+        tags.append('WEBUI')
+    if 'ComfyUI AI Params' in pnginfoKV:
+        tags.append('COMFY UI')
+    if 'Novel AI Params' in pnginfoKV:
+        tags.append('NOVEL AI')
 
-                # WebUIの場合：parametersキーが存在すればparse_generation_parameters()で解析
-                if "parameters" in data:
-                    ed = parse_generation_parameters(data["parameters"])
-                else:
-                    ed = {}
+    # Model キーが存在する場合のみタグ付け
+    model = pnginfoKV.get('Model')
+    if model:
+        model_lower = model.lower()
+        if 'illustrious' in model_lower:
+            tags.append('ILLUSTRIOUS')
+        elif 'xl' in model_lower:
+            tags.append('SDXL')
+        elif 'pony' in model_lower:
+            tags.append('PONY')
+        elif 'flux' in model_lower:
+            tags.append('FLUX')
 
-                # Novel AIの場合：data に "Comment" が存在すれば Novel AIと判断し各キーをマッピング
-                if "Comment" in data:
-                    ed["Prompt"] = data.get("prompt", "")
-                    if "width" in data and "height" in data:
-                        ed["Size-1"] = data["width"]
-                        ed["Size-2"] = data["height"]
-                    if "scale" in data:
-                        ed["CFG scale"] = data["scale"]
-                    if "seed" in data:
-                        ed["Seed"] = data["seed"]
-                    if "steps" in data:
-                        ed["Steps"] = data["steps"]
-                    if "sampler" in data:
-                        ed["Sampler"] = data["sampler"]
-                    if "uc" in data:
-                        ed["Negative prompt"] = data["uc"]
-                # ComfyUIの場合：Novel AIの"Comment"がないが"prompt"が存在する場合
-                elif "prompt" in data:
-                    ed["ComfyUI AI Params"] = data["prompt"]
+    # Prompt キーが存在すれば（WEBUIの場合）タグ判定
+    prompt = pnginfoKV.get('Prompt', '').lower()
+    if 'lora' in prompt:
+        tags.append('LORA')
+    elif 'locon' in prompt:
+        tags.append('LOCON')
+    elif 'loha' in prompt:
+        tags.append('LOHA')
 
-                # 書き出し用にテキストファイルを生成
-                text_file_name = f"./params_{int(time.time())}.txt"
-                with open(text_file_name, "w", encoding="utf-8") as f:
-                    pp = pprint.PrettyPrinter(stream=f, indent=4)
-                    pp.pprint(data)
+    if 'Hires upscaler' in pnginfoKV:
+        tags.append('HIRES')
 
-                # For debug
-                print("\n\n", ed)
+    title_tags = "   ".join(f"` {tag} `" for tag in tags) if tags else "FAILED TO GET TAGS"
 
-                embed, ifile = createPngInfoView(ed, temp_file_name)
-                text_file = discord.File(text_file_name, filename="fullParameters.txt")
+    embed = discord.Embed(title=f"Image Prompt & Settings :tools:\n{title_tags}", color=0x7101fa)
 
-                if ephemeral:
-                    await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
-                    await response_destination(file=text_file, ephemeral=ephemeral)
-                else:
-                    await response_destination(embed=embed, file=ifile)
-                    await response_destination(file=text_file)
-    except Exception as err:
-        print(err)
-        eimageurl = "./assets/mecha_sorry.png"
-        if isinstance(err, KeyError):
-            message = ">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format."
-            sorry_image = discord.File(eimageurl)
-            raise MechaHassakuError(message, sorry_image) from None
-        elif isinstance(err, AttributeError):
-            message = ">>> > Sorry, the linked message is too old for me to access."
-            sorry_image = discord.File(eimageurl)
-            raise MechaHassakuError(message, sorry_image) from None
+    # Automatic1111 用のパラメータ（存在する場合のみ表示）
+    if 'Prompt' in pnginfoKV:
+        add_big_field(embed, '__Prompt__ :keyboard:', pnginfoKV['Prompt'], False)
+    if 'Negative prompt' in pnginfoKV:
+        add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', pnginfoKV['Negative prompt'], False)
+    if 'Seed' in pnginfoKV:
+        embed.add_field(name='__Seed__ :game_die:', value=pnginfoKV['Seed'], inline=True)
+    if 'Sampler' in pnginfoKV:
+        embed.add_field(name='__Sampler__ :cyclone:', value=pnginfoKV['Sampler'], inline=True)
+    if 'CFG scale' in pnginfoKV:
+        embed.add_field(name='__CFG Scale__ :level_slider:', value=pnginfoKV['CFG scale'], inline=True)
+    if 'Size-1' in pnginfoKV and 'Size-2' in pnginfoKV:
+        embed.add_field(name='__Image Size__ :straight_ruler:', value=pnginfoKV['Size-1'] + "x" + pnginfoKV["Size-2"], inline=True)
+    if 'Steps' in pnginfoKV:
+        embed.add_field(name='__Steps__ :person_walking:', value=pnginfoKV['Steps'], inline=True)
+    if 'Clip skip' in pnginfoKV:
+        embed.add_field(name='__Clip Skip__ :paperclip:', value=pnginfoKV['Clip skip'], inline=True)
+
+    if 'Hires upscaler' in pnginfoKV:
+        embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:', value=pnginfoKV['Hires upscaler'], inline=True)
+        if 'Hires upscale' in pnginfoKV:
+            embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:', value=pnginfoKV['Hires upscale'], inline=True)
+        if 'Denoising strength' in pnginfoKV:
+            embed.add_field(name='__Denoising Strength__ :muscle:', value=pnginfoKV['Denoising strength'], inline=True)
+
+    # Model 表示は、キーが存在する場合のみ追加
+    if pnginfoKV.get('Model'):
+        if 'XL' in pnginfoKV['Model'] or 'SDXL' in pnginfoKV['Model']:
+            embed.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:', value=pnginfoKV['Model'], inline=True)
         else:
-            message = ">>> > Some error due to my stupid masters' incompetence."
-            print("Error details:", err)
-            sorry_image = discord.File(eimageurl)
-            raise MechaHassakuError(message, sorry_image) from None
-    finally:
-        # Cleanup temporary files
-        if temp_file_name is not None and os.path.isfile(temp_file_name):
-            os.remove(temp_file_name)
-        if text_file_name is not None and os.path.isfile(text_file_name):
-            os.remove(text_file_name)
+            embed.add_field(name='__Model__ :art:', value=pnginfoKV['Model'], inline=True)
+    if 'Model hash' in pnginfoKV:
+        embed.add_field(name='__Model Hash__ :key:', value=pnginfoKV['Model hash'], inline=True)
 
+    # ComfyUI/Novel AIのキーは、Embedに追加せず削除する
+    if 'ComfyUI AI Params' in pnginfoKV:
+        del pnginfoKV['ComfyUI AI Params']
+    if 'Novel AI Params' in pnginfoKV:
+        del pnginfoKV['Novel AI Params']
+
+    ifile = discord.File(icon_path)
+    url = "attachment://" + icon_path[2:]
+    print(url)
+    embed.set_thumbnail(url=url)
+    return embed, ifile
 async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=False):
     if not attachment.content_type.startswith("image"):
         return
