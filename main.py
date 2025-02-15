@@ -124,25 +124,31 @@ def createPngInfoView(pnginfoKV, icon_path):
     embed.set_thumbnail(url=url)
     return embed, ifile
 
-
 async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=False):
     if not attachment.content_type.startswith("image"):
         return
+    temp_file_name = None
     try:
         downloaded_byte = await attachment.read()
-        temp_file_name = ""
         with io.BytesIO(downloaded_byte) as image_data:
             with Image.open(image_data) as image:
                 temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
                 image.save(temp_file_name)
                 
                 data = image.info
-                #  WEBUI
+                
+                # No Parameters
+                if not any(key in data for key in ["parameters", "prompt", "Comment"]):
+                    await response_destination("No generation parameters found in this image.", ephemeral=ephemeral)
+                    return
+                
+                # WebUI
                 if "parameters" in data:
                     ed = parse_generation_parameters(data["parameters"])
                 else:
                     ed = {}
-                # ComfyUI
+                    
+                # ComfyUI 
                 if "prompt" in data:
                     ed["ComfyUI AI Params"] = data["prompt"]
                 # NovelAI
