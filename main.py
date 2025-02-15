@@ -139,7 +139,7 @@ async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=
                 
                 # No Parameters
                 if not any(key in data for key in ["parameters", "prompt", "Comment"]):
-                    await response_destination("No generation parameters found in this image.", ephemeral=ephemeral)
+                    await response_destination("No generation parameters found in this image.")
                     return
                 
                 # WebUI
