@@ -56,8 +56,6 @@ def add_big_field(embed: discord.Embed, name: str, txt: str, inline=False):
             text_value = txt[i * Limit_Length:(i + 1) * Limit_Length]
             embed.add_field(name=name + f"({i})", value=text_value, inline=inline)
 
-
-# Populate generation info in an embed
 def createPngInfoView(pnginfoKV, icon_path):
     tags = []
 
@@ -132,14 +130,10 @@ def createPngInfoView(pnginfoKV, icon_path):
     if 'Model hash' in pnginfoKV:
         embed.add_field(name='__Model Hash__ :key:', value=pnginfoKV['Model hash'], inline=True)
 
-    # ★ 新機能 ★
-    # ComfyUI 対応：'prompt' キーから追加した情報を専用フィールドとして表示
+    # ComfyUI/Novel AIのキーは、Embedに追加せず削除する
     if 'ComfyUI AI Params' in pnginfoKV:
-        add_big_field(embed, 'ComfyUI AI Params :gear:', pnginfoKV['ComfyUI AI Params'], False)
         del pnginfoKV['ComfyUI AI Params']
-    # NovelAI 対応：'Novel AI Params' キーから追加した情報を専用フィールドとして表示
     if 'Novel AI Params' in pnginfoKV:
-        add_big_field(embed, 'Novel AI Params :gear:', pnginfoKV['Novel AI Params'], False)
         del pnginfoKV['Novel AI Params']
 
     ifile = discord.File(icon_path)
@@ -147,8 +141,6 @@ def createPngInfoView(pnginfoKV, icon_path):
     print(url)
     embed.set_thumbnail(url=url)
     return embed, ifile
-
-
 async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral=False):
     if not attachment.content_type.startswith("image"):
         return
