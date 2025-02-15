@@ -63,76 +63,67 @@ def add_big_field(embed:discord.Embed, name:str, txt:str,  inline = False):
 
 #Populate generation info in an embed
 def createPngInfoView(pnginfoKV, icon_path):
-    embed = discord.Embed(title="Image Prompt & Settings :tools:",color=0x7101fa,)
-    add_big_field(embed, '__Prompt__ :keyboard:', pnginfoKV['Prompt'], False )
-    add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', pnginfoKV['Negative prompt'], False )
+    embed = discord.Embed(title="Image Prompt & Settings :tools:", color=0x7101fa)
+    
+    # Automatic1111 用のパラメータ（存在する場合のみ表示）
+    if 'Prompt' in pnginfoKV:
+        add_big_field(embed, '__Prompt__ :keyboard:', pnginfoKV['Prompt'], False)
+    if 'Negative prompt' in pnginfoKV:
+        add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', pnginfoKV['Negative prompt'], False)
     if 'Seed' in pnginfoKV:
         embed.add_field(name='__Seed__ :game_die:', value=pnginfoKV['Seed'], inline=True)
     if 'Sampler' in pnginfoKV:
-        embed.add_field(name='__Sampler__ :cyclone:',
-            value=pnginfoKV['Sampler'],
-            inline=True)
+        embed.add_field(name='__Sampler__ :cyclone:', value=pnginfoKV['Sampler'], inline=True)
     if 'CFG scale' in pnginfoKV:
-        embed.add_field(name='__CFG Scale__ :level_slider:',
-            value=pnginfoKV['CFG scale'],
-            inline=True)
+        embed.add_field(name='__CFG Scale__ :level_slider:', value=pnginfoKV['CFG scale'], inline=True)
     if 'Size-1' in pnginfoKV and 'Size-2' in pnginfoKV:
-        embed.add_field(name='__Image Size__ :straight_ruler:',
-            value=pnginfoKV['Size-1']+"x"+pnginfoKV["Size-2"],
-            inline=True)
+        embed.add_field(name='__Image Size__ :straight_ruler:', value=pnginfoKV['Size-1']+"x"+pnginfoKV["Size-2"], inline=True)
     if 'Steps' in pnginfoKV:
         embed.add_field(name='__Steps__ :person_walking:', value=pnginfoKV['Steps'], inline=True)
     if 'Clip skip' in pnginfoKV:
-        embed.add_field(name='__Clip Skip__ :paperclip:',
-                value=pnginfoKV['Clip skip'],
-                inline=True)
+        embed.add_field(name='__Clip Skip__ :paperclip:', value=pnginfoKV['Clip skip'], inline=True)
 
     if 'Hires upscaler' in pnginfoKV:
-        embed.add_field(name='__Hires. Fix__ :mag_right:',
-                        value='On  ✅',
-                        inline=True)
-        embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:',
-                        value=pnginfoKV['Hires upscaler'],
-                        inline=True)
+        embed.add_field(name='__Hires. Fix__ :mag_right:', value='On  ✅', inline=True)
+        embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:', value=pnginfoKV['Hires upscaler'], inline=True)
 
         if 'Hires upscale' in pnginfoKV:
-            embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:',
-                        value=pnginfoKV['Hires upscale'],
-                        inline=True)
+            embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:', value=pnginfoKV['Hires upscale'], inline=True)
         if 'Denoising strength' in pnginfoKV:
-            embed.add_field(name='__Denoising Strength__ :muscle:',
-                        value=pnginfoKV['Denoising strength'],
-                        inline=True)
-
+            embed.add_field(name='__Denoising Strength__ :muscle:', value=pnginfoKV['Denoising strength'], inline=True)
     else:
-        embed.add_field(name='__Hires. Fix__ :mag_right:',
-                        value='Off  ❌',
-                        inline=True)
+        embed.add_field(name='__Hires. Fix__ :mag_right:', value='Off  ❌', inline=True)
     if 'Model' in pnginfoKV:
         if 'XL' in pnginfoKV['Model'] or 'SDXL' in pnginfoKV['Model']:
-            embed.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:',
-                            value=pnginfoKV['Model'],
-                            inline=True)
+            embed.add_field(name='__Model__ :regional_indicator_x::regional_indicator_l:', value=pnginfoKV['Model'], inline=True)
         else:
-            embed.add_field(name='__Model__ :art:',
-                                value=pnginfoKV['Model'],
-                                inline=True)
-
-
+            embed.add_field(name='__Model__ :art:', value=pnginfoKV['Model'], inline=True)
     if 'Model hash' in pnginfoKV:
-        embed.add_field(name='__Model Hash__ :key:',
-                            value=pnginfoKV['Model hash'],
-                            inline=True)
-
-    delkeys = ['Prompt','Negative prompt', 'Steps', 'Seed', 'Sampler', 'CFG scale', 'Size-1','Size-2', 'Clip skip', 'Model', 'Model hash', 'Hires upscaler', 'Hires upscale', 'Denoising strength']
-    other_parameters = ', '.join(f'__{key}__: {value}' 
-                                 for key, value in pnginfoKV.items() if key not in delkeys)
-    add_big_field(embed, 'Other Params :gear:', other_parameters, False )
+        embed.add_field(name='__Model Hash__ :key:', value=pnginfoKV['Model hash'], inline=True)
+    
+    # ★ 新機能 ★
+    # ComfyUI 対応：'prompt' キーから追加した情報を専用フィールドとして表示
+    if 'ComfyUI AI Params' in pnginfoKV:
+        add_big_field(embed, 'ComfyUI AI Params :gear:', pnginfoKV['ComfyUI AI Params'], False)
+        del pnginfoKV['ComfyUI AI Params']
+    # NovelAI 対応：'Comment' キーから追加した情報を専用フィールドとして表示
+    if 'Novel AI Params' in pnginfoKV:
+        add_big_field(embed, 'Novel AI Params :gear:', pnginfoKV['Novel AI Params'], False)
+        del pnginfoKV['Novel AI Params']
+    
+    # その他のパラメータ（自動生成されたパラメータ以外）
+    delkeys = ['Prompt', 'Negative prompt', 'Steps', 'Seed', 'Sampler', 'CFG scale', 'Size-1', 'Size-2', 
+               'Clip skip', 'Model', 'Model hash', 'Hires upscaler', 'Hires upscale', 'Denoising strength']
+    other_parameters = ', '.join(f'__{key}__: {value}' for key, value in pnginfoKV.items() if key not in delkeys)
+    if other_parameters:
+        add_big_field(embed, 'Other Params :gear:', other_parameters, False)
+    
     ifile = discord.File(icon_path)
     url = "attachment://" + icon_path[2:]
     print(url)
     embed.set_thumbnail(url=url)
     return embed, ifile
+
 
 async def analyzeAttachmentAndReply(attachment, response_destination, ephemeral= False):
     if not attachment.content_type.startswith("image"):
