@@ -71,7 +71,7 @@ def createPngInfoView(pnginfoKV, icon_path):
     model = pnginfoKV.get('Model')
     if model:
         model_lower = model.lower()
-        if 'illustrious' in model_lower:
+        if 'illustrious' in model_lower or 'noob' in model_lower or 'wai' in model_lower:
             tags.append('ILLUSTRIOUS')
         elif 'xl' in model_lower:
             tags.append('SDXL')
