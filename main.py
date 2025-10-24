@@ -25,7 +25,7 @@ from module.parser import parse_generation_parameters
 
 
 # ==================== Configuration ====================
-AUTO_CHANNEL_NAME = 'testing'
+AUTO_CHANNEL_NAME = '🤖│prompts-auto-share'
 EMBED_FIELD_LIMIT = 1000
 BOT_LOG_CHANNEL_ID = 1120267966731259984
 
@@ -96,7 +96,7 @@ def add_big_field(embed: Embed, name: str, txt: str, inline: bool = False) -> No
             embed.add_field(name=f"{name}({i})", value=text_value, inline=inline)
 
 
-def create_pnginfo_view(pnginfo_kv: Dict[str, Any], icon_path: str) -> Tuple[Embed, File]:
+def create_pnginfo_view(pnginfo_kv: Dict[str, Any], icon_path: str) -> tuple[Embed, File]:
     """Create an embed displaying PNG generation parameters."""
     tags = _detect_tags(pnginfo_kv)
     title_tags = "   ".join(f"` {tag} `" for tag in tags) if tags else "FAILED TO GET TAGS"
@@ -106,18 +106,22 @@ def create_pnginfo_view(pnginfo_kv: Dict[str, Any], icon_path: str) -> Tuple[Emb
         color=0x7101fa
     )
     
-    _add_prompt_fields(embed, pnginfo_kv)
-    _add_generation_fields(embed, pnginfo_kv)
-    _add_hires_fields(embed, pnginfo_kv)
-    _add_model_fields(embed, pnginfo_kv)
+    # Only add embed fields if not ComfyUI
+    if pnginfo_kv.get("ui_type") != "comfyui":
+        _add_prompt_fields(embed, pnginfo_kv)
+        _add_generation_fields(embed, pnginfo_kv)
+        _add_hires_fields(embed, pnginfo_kv)
+        _add_model_fields(embed, pnginfo_kv)
+    else:
+        # For ComfyUI, just set the description
+        embed.description = "ComfyUI workflow detected. Full metadata attached below :arrow_double_down:"
     
-    # Clean up metadata keys that shouldn't be in embed
-    pnginfo_kv.pop('ComfyUI AI Params', None)
-    pnginfo_kv.pop('Novel AI Params', None)
+    # Remove metadata keys not needed in embed
+    for key in ['ComfyUI AI Params', 'Novel AI Params', 'Generation date', 'Generation time', 'SwarmUI version', 'Aspect ratio']:
+        pnginfo_kv.pop(key, None)
     
     ifile = File(icon_path)
     url = "attachment://" + icon_path[2:]
-    print(url)
     embed.set_thumbnail(url=url)
     
     return embed, ifile
@@ -134,19 +138,19 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
     
     if 'sui_image_params' in prompt_val or 'SwarmUI version' in pnginfo_kv:
         tags.append('SWARM UI')
-    elif 'Prompt' in pnginfo_kv and 'SWARM UI' not in tags:
-        tags.append('WEBUI')
     elif 'ComfyUI AI Params' in pnginfo_kv:
         tags.append('COMFY UI')
     elif 'Novel AI Params' in pnginfo_kv:
         tags.append('NOVEL AI')
+    elif 'Prompt' in pnginfo_kv:
+        tags.append('WEBUI')
 
     # Detect model type
     model = pnginfo_kv.get('Model', '').lower()
     if model:
         if any(keyword in model for keyword in ['illustrious', 'noob', 'wai']):
             tags.append('ILLUSTRIOUS')
-        elif 'xl' in model:
+        elif 'xl' in model or 'sdxl' in model:
             tags.append('SDXL')
         elif 'pony' in model:
             tags.append('PONY')
@@ -155,7 +159,7 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
     
     # Detect LoRA type
     prompt = pnginfo_kv.get('Prompt', '').lower()
-    if 'lora' in prompt or '<lora:' in prompt:
+    if 'lora' in prompt or '<lora:' in prompt or 'LoRAs' in pnginfo_kv:
         tags.append('LORA')
     elif 'locon' in prompt:
         tags.append('LOCON')
@@ -167,6 +171,7 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
         tags.append('HIRES')
     
     return tags
+
 
 
 def _add_prompt_fields(embed: Embed, kv: Dict[str, Any]) -> None:
@@ -190,7 +195,9 @@ def _add_generation_fields(embed: Embed, kv: Dict[str, Any]) -> None:
     for key, name, inline in fields:
         if key in kv:
             embed.add_field(name=name, value=kv[key], inline=inline)
-    
+    # Add scheduler if present (SwarmUI/ComfyUI)
+    if 'Schedule type' in kv and kv['Schedule type'] != 'Automatic':
+        embed.add_field(name='__Scheduler__ :calendar:', value=kv['Schedule type'], inline=True)
     # Image size (special handling)
     if 'Size-1' in kv and 'Size-2' in kv:
         size = f"{kv['Size-1']}x{kv['Size-2']}"
@@ -215,12 +222,21 @@ def _add_model_fields(embed: Embed, kv: Dict[str, Any]) -> None:
     """Add model-related fields to embed."""
     model = kv.get('Model')
     if model:
-        is_xl = any(tag in model for tag in ['XL', 'SDXL'])
+        is_xl = any(tag in model.upper() for tag in ['XL', 'SDXL'])
         name = '__Model__ :regional_indicator_x::regional_indicator_l:' if is_xl else '__Model__ :art:'
         embed.add_field(name=name, value=model, inline=True)
     
     if 'Model hash' in kv:
         embed.add_field(name='__Model Hash__ :key:', value=kv['Model hash'], inline=True)
+    
+    # Add VAE if present
+    if 'VAE' in kv:
+        embed.add_field(name='__VAE__ :file_folder:', value=kv['VAE'], inline=True)
+    
+    # Add LoRAs if present (ComfyUI specific)
+    if 'LoRAs' in kv:
+        add_big_field(embed, '__LoRAs__ :jigsaw:', kv['LoRAs'], inline=False)
+    
 
 
 # ==================== Image Analysis ====================
@@ -293,9 +309,17 @@ def _parse_parameters(data: Dict[str, Any]) -> Dict[str, Any]:
     # WebUI format
     if "parameters" in data:
         ed = parse_generation_parameters(data["parameters"])
+        ed["ui_type"] = "webui"
+    
+    # ComfyUI format
+    elif "prompt" in data:
+        ed["ui_type"] = "comfyui"
+        ed["ComfyUI AI Params"] = data["prompt"]
+        # Minimal fields for embed
+        ed["Prompt"] = "ComfyUI workflow detected. Full metadata attached below :arrow_double_down: "
     
     # Novel AI format
-    if "Comment" in data:
+    elif "Comment" in data:
         ed.update({
             "Prompt": data.get("prompt", ""),
             "Negative prompt": data.get("uc", ""),
@@ -304,16 +328,14 @@ def _parse_parameters(data: Dict[str, Any]) -> Dict[str, Any]:
             "Steps": data.get("steps"),
             "Sampler": data.get("sampler"),
         })
-        
         if "width" in data and "height" in data:
             ed["Size-1"] = data["width"]
             ed["Size-2"] = data["height"]
-    
-    # ComfyUI format
-    elif "prompt" in data:
-        ed["ComfyUI AI Params"] = data["prompt"]
+        ed["Novel AI Params"] = True
+        ed["ui_type"] = "novelai"
     
     return ed
+
 
 
 def _handle_analysis_error(err: Exception, response_destination: Callable) -> None:
@@ -336,7 +358,7 @@ async def analyze_all_attachments(message: discord.Message) -> None:
         if not attachment.content_type.startswith("image"):
             continue
         
-        msg = await message.reply("analyzing....... <a:kururing:1113757022257696798> ", mention_author=False)
+        msg = await message.reply("Analyzing image >>> <a:kururing:1113757022257696798> ", mention_author=False)
         
         try:
             await analyze_attachment_and_reply(attachment, message.channel.send)
@@ -697,17 +719,5 @@ class HelpButtonView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=view)
 
 
-# ==================== Main ====================
-def main() -> None:
-    """Initialize and run the bot."""
-    load_dotenv()
-    
-    token = os.getenv("TOKEN")
-    if not token:
-        raise ValueError("Discord bot token not set")
-    
-    client.run(token)
-
-
-if __name__ == "__main__":
-    main()
+clienttoken = os.environ["TOKEN"]
+client.run(clienttoken)
