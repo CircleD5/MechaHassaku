@@ -13,6 +13,7 @@ import time
 import pprint
 import datetime
 from typing import Optional, Tuple, Dict, Any, Callable
+from dotenv import load_dotenv
 
 import discord
 from discord.ext import commands
@@ -719,5 +720,6 @@ class HelpButtonView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=view)
 
 
+load_dotenv()
 clienttoken = os.environ["TOKEN"]
 client.run(clienttoken)
