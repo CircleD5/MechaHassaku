@@ -1,0 +1,19 @@
+[Unit]
+Description=MechaHassaku Discord bot
+After=network-online.target
+Wants=network-online.target
+# Do not start until the token file exists
+ConditionPathExists=/home/000no/MechaHassaku/.env
+# Stop retrying if it keeps failing (e.g. invalid token)
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+User=000no
+WorkingDirectory=/home/000no/MechaHassaku
+ExecStart=/home/000no/MechaHassaku/env/bin/python -u main.py
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
