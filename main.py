@@ -22,7 +22,8 @@ from dotenv import load_dotenv
 from PIL import Image
 
 from module.MechaHassakuException import MechaHassakuError
-from module.parser import parse_generation_parameters
+from module.parser import parse_generation_parameters, parse_novelai_parameters
+from module.metadata import has_parameters, read_image_metadata
 
 
 # ==================== Configuration ====================
@@ -146,6 +147,10 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
     elif 'Prompt' in pnginfo_kv:
         tags.append('WEBUI')
 
+    # Parameters were read from the pixels (alpha / RGB LSBs), not from text chunks
+    if 'Stealth' in pnginfo_kv:
+        tags.append('STEALTH')
+
     # Detect model type
     model = pnginfo_kv.get('Model', '').lower()
     if model:
@@ -262,15 +267,18 @@ async def analyze_attachment_and_reply(
                 temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
                 image.save(temp_file_name)
                 
-                data = image.info
-                
+                # Text chunks first; hidden pixel data (stealth pnginfo) only when they have nothing
+                data, stealth = read_image_metadata(image)
+
                 # Check if parameters exist
-                if not any(key in data for key in ["parameters", "prompt", "Comment"]):
+                if not has_parameters(data):
                     await response_destination("No parameters detected. Upload the image instead of pasting it.")
                     return
-                
+
                 # Parse parameters based on UI type
                 ed = _parse_parameters(data)
+                if stealth:
+                    ed["Stealth"] = stealth.describe()
                 
                 # Create text file with full parameters
                 text_file_name = f"./params_{int(time.time())}.txt"
@@ -321,17 +329,7 @@ def _parse_parameters(data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Novel AI format
     elif "Comment" in data:
-        ed.update({
-            "Prompt": data.get("prompt", ""),
-            "Negative prompt": data.get("uc", ""),
-            "CFG scale": data.get("scale"),
-            "Seed": data.get("seed"),
-            "Steps": data.get("steps"),
-            "Sampler": data.get("sampler"),
-        })
-        if "width" in data and "height" in data:
-            ed["Size-1"] = data["width"]
-            ed["Size-2"] = data["height"]
+        ed = parse_novelai_parameters(data)
         ed["Novel AI Params"] = True
         ed["ui_type"] = "novelai"
     
