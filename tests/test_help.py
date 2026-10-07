@@ -47,10 +47,11 @@ class HelpViewTest(unittest.IsolatedAsyncioTestCase):
         labels = [item.label for item in view.children]
         self.assertEqual(
             sorted(labels),
-            sorted(["How to use", "Commands", "Tools", "About citrus models", "Civitai", "SubscribeStar"])
+            sorted(["How to use", "Commands", "Tools", "About citrus models", "Civitai", "SubscribeStar", "SeaArt"])
         )
         urls = {item.label: item.url for item in view.children if item.url}
-        self.assertEqual(urls, {"Civitai": main.CIVITAI_URL, "SubscribeStar": main.SUBSCRIBESTAR_URL})
+        self.assertEqual(urls, {"Civitai": main.CIVITAI_URL, "SubscribeStar": main.SUBSCRIBESTAR_URL,
+                                "SeaArt": main.SEAART_URL})
 
 
 class SlashCommandsTest(unittest.TestCase):
