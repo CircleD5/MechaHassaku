@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 import discord
 from discord.ext import commands
-from discord import File, Embed, Interaction, Attachment
+from discord import File, Embed, Interaction, Attachment, app_commands
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -30,35 +30,48 @@ from module.metadata import has_parameters, read_image_metadata
 AUTO_CHANNEL_NAME = '🤖│prompts-auto-share'
 EMBED_FIELD_LIMIT = 1000
 BOT_LOG_CHANNEL_ID = 1120267966731259984
+BOT_STATUS = "Type /help to see how I work"
+
+# Channels on the AI Art & Models Hub server, linked from /help
+AUTO_SHARE_CHANNEL_ID = 1120359493142843522
+HELP_CHANNEL_ID = 1072336225496739970
+RULES_CHANNEL_ID = 1094982199528394823
+COLOR_ROLES_CHANNEL_ID = 1110212451254935563
+HELPFUL_LINKS_CHANNEL_ID = 1081221623597781153
+
+# https://discord.com/channels/<guild or @me>/<channel>/<message> (also canary./ptb./discordapp.com)
+RE_MESSAGE_LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+|@me)/(\d+)/(\d+)")
+
+CIVITAI_URL = "https://civitai.com/user/Ikena/models"
+SUBSCRIBESTAR_URL = "https://subscribestar.adult/citrus-models"
 
 # File paths
 ASSET_SORRY = "./assets/mecha_sorry.png"
-ASSET_CONFUSED = "./assets/confused.png"
+ASSET_CONFUSED = "./assets/mecha_confused.png"
+
+
+class MechaHassakuBot(commands.Bot):
+    async def setup_hook(self) -> None:
+        # Register slash commands with Discord. Runs once per process start, i.e. on each deploy.
+        try:
+            synced = await self.tree.sync()
+            print(f"Synced {len(synced)} slash commands")
+        except Exception as e:
+            print(f"Error syncing slash commands: {e}")
+
 
 # Bot setup
 intents = discord.Intents.all()
 intents.message_content = True
-client = commands.Bot(command_prefix='$', intents=intents)
+client = MechaHassakuBot(command_prefix='$', intents=intents)
 
 
 # ==================== Bot Events ====================
 @client.event
 async def on_ready() -> None:
     """Initialize bot on startup."""
-    try:
-        # Uncomment to sync slash commands (avoid rate limiting during testing)
-        # await client.tree.sync()
-        print("Synced slash commands")
-    except Exception as e:
-        print(f"Error syncing slash commands: {e}")
+    await client.change_presence(activity=discord.CustomActivity(name=BOT_STATUS))
 
-    await client.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="Prerelease v0.9"
-        )
-    )
-    
     print("------------------------------------------------")
     print(f"Bot successfully deployed\nSession started at {datetime.datetime.now()}")
     print(f"Online as {client.user}")
@@ -70,7 +83,16 @@ async def on_message(message: discord.Message) -> None:
     """Handle incoming messages."""
     if message.author == client.user:
         return
-    
+
+    # "@MechaHassaku how do I use you?" -> point to /help
+    if client.user in message.mentions and message.reference is None and not message.attachments:
+        await message.reply(
+            f"Hi! Type `/help` to see what I can do, or post an image in <#{AUTO_SHARE_CHANNEL_ID}> "
+            "and I'll show its prompt.",
+            mention_author=False
+        )
+        return
+
     await model_request_detector(message)
     
     # Auto-analyze images in specific channel
@@ -437,7 +459,7 @@ async def model_request_handler(message: discord.Message, response_destination: 
 
 
 # ==================== Slash Commands ====================
-@client.tree.command(name="ping", description="Check the latency of the bot")
+@client.tree.command(name="ping", description="Check that the bot is awake and how fast it responds")
 async def ping(interaction: Interaction) -> None:
     """Respond with bot latency."""
     latency_ms = round(client.latency * 1000)
@@ -446,92 +468,120 @@ async def ping(interaction: Interaction) -> None:
     )
 
 
+async def _fetch_linked_message(link: str) -> discord.Message:
+    """Fetch the message a Discord message link points to (channels and threads)."""
+    match = RE_MESSAGE_LINK.search(link)
+    if not match:
+        raise ValueError("not a message link")
+    channel_id, message_id = int(match.group(2)), int(match.group(3))
+    channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
+    return await channel.fetch_message(message_id)
+
+
 @client.tree.command(
     name="checkparameters",
-    description="Get Stable Diffusion generation settings and prompts used of an image from a linked message"
+    description="Show the prompt and settings of an AI image (attach it, or paste a message link)"
 )
-async def checkparameters(interaction: Interaction, private_mode: bool, link: str) -> None:
-    """Check parameters from a linked message."""
+@app_commands.describe(
+    image="The image to check (upload the original file)",
+    link="Link to a message with images (right-click the message → Copy Message Link)",
+    private="Only you can see the result (default: off)",
+)
+async def checkparameters(
+    interaction: Interaction,
+    image: Optional[Attachment] = None,
+    link: Optional[str] = None,
+    private: bool = False,
+) -> None:
+    """Check parameters of an attached image or of the images in a linked message."""
+    if image is None and not link:
+        await interaction.response.send_message(
+            "Attach an image with `image:` or paste a message link with `link:`. See `/help` for details.",
+            ephemeral=True
+        )
+        return
+
     try:
-        await interaction.response.defer(ephemeral=private_mode)
+        await interaction.response.defer(ephemeral=private)
         start_time = time.time()
-        
-        # Parse message link
-        parts = link.split('/')
-        guild_id = int(parts[-3])
-        channel_id = int(parts[-2])
-        message_id = int(parts[-1])
-        
-        print(f"\nguild id: {guild_id}\nchannel id: {channel_id}\nmessage id: {message_id}")
-        
-        # Fetch message
-        guild = client.get_guild(guild_id)
-        channel = guild.get_channel(channel_id)
-        message = await channel.fetch_message(message_id)
-        
-        print(f"\nnumber of attachments: {len(message.attachments)}")
-        
-        if not message.attachments:
+
+        if image is not None:
+            attachments = [image]
+        else:
+            try:
+                message = await _fetch_linked_message(link)
+            except ValueError:
+                await interaction.followup.send(
+                    "That doesn't look like a message link. Right-click the message → **Copy Message Link**.",
+                    ephemeral=True
+                )
+                return
+            attachments = message.attachments
+
+        if not attachments:
             await interaction.followup.send(
                 "There's nothing attached, you know<:TeriDerp:1104059514501746689>?",
-                ephemeral=private_mode
+                ephemeral=private
             )
             return
-        
-        # Process all attachments
-        for attachment in message.attachments:
+
+        for attachment in attachments:
             try:
                 await analyze_attachment_and_reply(
                     attachment,
                     interaction.followup.send,
-                    ephemeral=private_mode
+                    ephemeral=private
                 )
             except MechaHassakuError as err:
                 print(err)
-                await interaction.followup.send(err.message, file=err.file, ephemeral=private_mode)
-        
+                await interaction.followup.send(err.message, file=err.file, ephemeral=private)
+
         elapsed_time = time.time() - start_time
         print(f"Execution time: {elapsed_time:.2f} seconds")
-        
+
     except Exception as err:
         print(err)
         await interaction.followup.send(
             ">>> > Some error due to my stupid masters' incompetence.",
             file=File(ASSET_SORRY),
-            ephemeral=private_mode
+            ephemeral=private
         )
 
 
-@client.tree.command(name="anonsend", description="Send images anonymously, if you're shy")
+@client.tree.command(
+    name="anonsend",
+    description="Post an image without showing your name (moderators can still see who sent it)"
+)
+@app_commands.describe(file="The image to post")
 async def anonsend(interaction: Interaction, file: Attachment) -> None:
     """Send an image anonymously."""
     temp_file = "aimage.png"
-    
+
     try:
         user_id = interaction.user.id
         channel = await client.fetch_channel(BOT_LOG_CHANNEL_ID)
-        
+
         # Download and save image
         download_byte = await file.read()
         with io.BytesIO(download_byte) as image_data:
             with Image.open(image_data) as image:
                 image.save(temp_file)
-                
+
                 await client.fetch_channel(interaction.channel_id)
                 afile = File(temp_file)
-                
+
                 await interaction.response.send_message(
                     "Image sent anonymously!\n Only you can see this message :man_detective:",
                     ephemeral=True
                 )
-                
+
                 m = await interaction.followup.send(file=afile)
-                
+
                 # Log for security
                 await channel.send(
                     f"User ID {user_id} sent an image anonymously! Jump to message: {m.jump_url}"
                 )
-                
+
     except Exception as e:
         print(e)
         await interaction.response.send_message(
@@ -539,185 +589,128 @@ async def anonsend(interaction: Interaction, file: Attachment) -> None:
             ephemeral=True,
             file=File(ASSET_CONFUSED)
         )
-        
+
     finally:
         if os.path.isfile(temp_file):
             os.remove(temp_file)
 
 
-@client.tree.command(
-    name="help",
-    description="Help on how to use the bot and Stable Diffusion guides"
-)
+@client.tree.command(name="help", description="How to use MechaHassaku, its commands, and Ikena's citrus models")
 async def help_command(interaction: Interaction) -> None:
-    """Display help information."""
-    embed = _create_help_embed()
-    view = HelpButtonView()
-    await interaction.response.send_message(embed=embed, view=view)
+    """Display help information (only the user who asked sees it)."""
+    await interaction.response.send_message(
+        embed=build_help_page("usage"), view=HelpView(), ephemeral=True
+    )
 
 
 # ==================== Help System ====================
-def _create_help_embed() -> Embed:
-    """Create the main help embed."""
-    embed = Embed(
-        title="MechaHassaku Helpdesk",
-        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL45I7czocaVJmE4FQrV4r6R5SL47hIs-O&index=92",
-        color=0xf74e0d
-    )
-    embed.set_thumbnail(url=client.user.avatar.url)
-    
-    embed.add_field(
-        name=":one:  Beginners Guide to Stable Diffusion :rocket:",
-        value="Guides to go from setting up till image generation ",
-        inline=False
-    )
-    embed.add_field(
-        name=":two:  Utility - Helpful Resources :wrench:",
-        value="Compilation of helpful tools, resources, models etc.",
-        inline=False
-    )
-    embed.add_field(
-        name="See an image you like and want to generate similar images?",
-        value=(
-            "Use my flagship feature to find out the prompt and generation settings used from "
-            "an SD AI generated image! Just type `/imageparameters` in the text box and you will "
-            "be prompted to upload the image."
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="Check out Ikena's Stable Diffusion models for all your needs: Anime, Hentai & Semi-Realistic",
-        value=(
-            "https://civitai.com/user/Ikena/models \n"
-            "If you like his work, consider donating on Patreon\n"
-            "**Still have questions? Ask away at <#1072336225496739970>**"
-        ),
-        inline=False
-    )
-    embed.set_footer(
-        text=(
-            "This is an early version of the bot. If you find something wrong or have "
-            "suggestions, feel free to contact me (manofculture#0644)"
-        )
-    )
-    
+HELP_COLOR = 0xf74e0d
+
+
+def _help_base(title: str) -> Embed:
+    embed = Embed(title=title, color=HELP_COLOR)
+    if client.user and client.user.avatar:
+        embed.set_thumbnail(url=client.user.avatar.url)
     return embed
 
 
-class HelpButtonView(discord.ui.View):
-    """View containing help navigation buttons."""
-    
+def build_help_page(page: str) -> Embed:
+    """Build one help page: "usage", "commands" or "about"."""
+    if page == "commands":
+        embed = _help_base("Commands")
+        embed.add_field(
+            name="/checkparameters",
+            value=(
+                "`image:` — check an image you upload\n"
+                "`link:` — check an image that's already posted "
+                "(right-click the message → Copy Message Link)\n"
+                "Add `private: True` so only you see the result."
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="/anonsend",
+            value="`file:` — post an image without showing your name. Moderators can still see who sent it.",
+            inline=False
+        )
+        embed.add_field(name="/help", value="This guide.", inline=False)
+        embed.add_field(name="/ping", value="Check that I'm awake.", inline=False)
+        return embed
+
+    if page == "about":
+        embed = _help_base("About citrus models")
+        embed.description = (
+            "AI Art & Models Hub is the home of Ikena's citrus models — "
+            "every model is named after a Japanese citrus fruit 🍋.\n"
+            "These days most images here are made with Anima or Illustrious models."
+        )
+        embed.add_field(
+            name="Around the server",
+            value=(
+                f"📜 Rules: <#{RULES_CHANNEL_ID}>\n"
+                f"🌈 Color roles: <#{COLOR_ROLES_CHANNEL_ID}>\n"
+                f"🔗 Helpful links: <#{HELPFUL_LINKS_CHANNEL_ID}>"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="Support the models",
+            value="Use the Civitai and SubscribeStar buttons below.",
+            inline=False
+        )
+        return embed
+
+    embed = _help_base("MechaHassaku — prompt checker")
+    embed.description = "I read the prompt and settings saved inside AI-generated images and show them here."
+    embed.add_field(
+        name="📥 Check an image",
+        value=(
+            f"1. Post it in <#{AUTO_SHARE_CHANNEL_ID}> — I reply automatically.\n"
+            "2. Use `/checkparameters` and attach the image (or paste a message link).\n"
+            "3. Reply \"what model?\" to someone's image and I'll tell you the model."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="✅ Works with",
+        value="Forge / A1111, ComfyUI, SwarmUI, NovelAI (V3–V5), and prompts hidden in the image pixels.",
+        inline=False
+    )
+    embed.add_field(
+        name="💡 Tip",
+        value="Upload the original file. Screenshots and copy-pasted images lose the prompt.",
+        inline=False
+    )
+    embed.add_field(name="❓ Questions?", value=f"Ask in <#{HELP_CHANNEL_ID}>", inline=False)
+    return embed
+
+
+class HelpView(discord.ui.View):
+    """Page buttons for /help plus links to Ikena's pages."""
+
     def __init__(self):
-        super().__init__(timeout=300)
-        
-        # Add Patreon button
-        patreon_button = discord.ui.Button(
-            label="Ikena's Patreon",
-            style=discord.ButtonStyle.url,
-            url='https://www.patreon.com/user?u=27247323',
-            emoji="🧡"
-        )
-        self.add_item(patreon_button)
-    
-    @discord.ui.button(label="Get Started", emoji="🚀", style=discord.ButtonStyle.blurple)
-    async def get_started_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
-        """Show getting started guide."""
-        embed = Embed(
-            title="Requirements and Setting Up Stable Diffusion",
-            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL45I7czocaVJmE4FQrV4r6R5SL47hIs-O&index=92",
-            color=0x0062ff
-        )
-        embed.set_author(name="Mecha Hassaku - Helpdesk", icon_url=client.user.avatar.url)
-        
-        embed.add_field(
-            name=":one:  Requirements  :notepad_spiral:",
-            value=(
-                "Minimum Requirements:\n"
-                "⊛ A > 4/6GB  VRAM GPU (Preferably Nvidia)\n"
-                "⊛ Atleast 15GB of free disk space\n"
-                "⊛ Windows 8, preferably 10/11"
-            ),
-            inline=False
-        )
-        embed.add_field(
-            name="Don't meet the requirements? Dont Worry!",
-            value="You can use these (for free pretty much): https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Online-Services",
-            inline=False
-        )
-        embed.add_field(
-            name=":two:  Installation  :gear:",
-            value=(
-                "Follow these:\n"
-                "⊛ Windows: https://github.com/AUTOMATIC1111/stable-diffusion-webui#automatic-installation-on-windows\n"
-                "Video guide: https://www.youtube.com/watch?v=3cvP7yJotUM"
-            ),
-            inline=False
-        )
-        embed.add_field(
-            name="Too Lazy? Use this unofficial .exe installer for Windows",
-            value="https://github.com/EmpireMediaScience/A1111-Web-UI-Installer",
-            inline=False
-        )
-        embed.add_field(
-            name="Done. Now what?",
-            value=(
-                "By default the SD 1.5 model is installed but you can use many other models like "
-                "Ikena's Hassaku from civitai.com. Save them to the "
-                "`stable-diffusion-webui/models/Stable-diffusion` path in your computer"
-            ),
-            inline=False
-        )
-        
-        await interaction.response.defer()
-        await interaction.edit_original_response(embed=embed)
-    
-    @discord.ui.button(label="Utility", emoji="🔧", style=discord.ButtonStyle.blurple)
-    async def utility_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
-        """Show utility resources."""
-        embed = Embed(
-            title="Utility Tools & Resources",
-            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL45I7czocaVJmE4FQrV4r6R5SL47hIs-O&index=92",
-            color=0x0062ff
-        )
-        embed.set_author(name="Mecha Hassaku - Helpdesk", icon_url=client.user.avatar.url)
-        
-        embed.add_field(
-            name=":two: Helpful Stuff :toolbox:",
-            value="Links to helpful resources and tools ",
-            inline=False
-        )
-        embed.add_field(
-            name="StableDiffusion Wiki",
-            value="https://www.reddit.com/r/StableDiffusion/wiki/index/",
-            inline=False
-        )
-        embed.add_field(
-            name="Download Models, LoRAs, VAEs and More",
-            value="CivitAI: https://civitai.com\nHuggingFace:https://huggingface.co ",
-            inline=False
-        )
-        embed.add_field(
-            name="Training tools",
-            value=(
-                "Kohya GUI: https://github.com/bmaltais/kohya_ss\n"
-                "Image/Dataset Captioning tool: https://github.com/toriato/stable-diffusion-webui-wd14-tagger "
-            ),
-            inline=False
-        )
-        
-        await interaction.response.defer()
-        await interaction.edit_original_response(embed=embed)
-    
-    @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.danger)
-    async def back_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
-        """Return to main help menu."""
-        embed = _create_help_embed()
-        view = HelpButtonView()
-        
-        await interaction.response.defer()
-        await interaction.edit_original_response(embed=embed, view=view)
+        super().__init__(timeout=600)
+        self.add_item(discord.ui.Button(label="Civitai", style=discord.ButtonStyle.url, url=CIVITAI_URL, emoji="🎨"))
+        self.add_item(discord.ui.Button(
+            label="SubscribeStar", style=discord.ButtonStyle.url, url=SUBSCRIBESTAR_URL, emoji="🍋"
+        ))
+
+    async def _show(self, interaction: Interaction, page: str) -> None:
+        await interaction.response.edit_message(embed=build_help_page(page), view=self)
+
+    @discord.ui.button(label="How to use", emoji="📥", style=discord.ButtonStyle.blurple, row=0)
+    async def usage_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
+        await self._show(interaction, "usage")
+
+    @discord.ui.button(label="Commands", emoji="⌨️", style=discord.ButtonStyle.blurple, row=0)
+    async def commands_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
+        await self._show(interaction, "commands")
+
+    @discord.ui.button(label="About citrus models", emoji="🍋", style=discord.ButtonStyle.blurple, row=0)
+    async def about_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
+        await self._show(interaction, "about")
 
 
-load_dotenv()
-clienttoken = os.environ["TOKEN"]
-client.run(clienttoken)
+if __name__ == "__main__":
+    load_dotenv()
+    client.run(os.environ["TOKEN"])
