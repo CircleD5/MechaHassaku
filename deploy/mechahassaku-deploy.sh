@@ -16,7 +16,11 @@ HEALTH_WAIT=${HEALTH_WAIT:-30}
 STATE_DIR=${STATE_DIR:-/var/lib/mechahassaku-deploy}
 FAILED_FILE=$STATE_DIR/failed_commit
 
-as_user() { runuser -u "$RUN_AS" -- "$@"; }
+# setpriv instead of runuser: no PAM session, so no login/logout lines in the journal every 5 minutes
+as_user() {
+    setpriv --reuid="$RUN_AS" --regid="$RUN_AS" --init-groups \
+        env HOME="$(getent passwd "$RUN_AS" | cut -d: -f6)" "$@"
+}
 log() { echo "[deploy] $*"; }
 
 mkdir -p "$STATE_DIR"
