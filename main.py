@@ -764,4 +764,5 @@ class HelpView(discord.ui.View):
 
 if __name__ == "__main__":
     load_dotenv()
-    client.run(os.environ["TOKEN"])
+    # root_logger=True: also print our "mechahassaku" logs, not only discord.py's own
+    client.run(os.environ["TOKEN"], root_logger=True)
