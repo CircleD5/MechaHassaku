@@ -45,6 +45,16 @@ RE_MESSAGE_LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+|@me)/(\d+)/(\d
 CIVITAI_URL = "https://civitai.com/user/Ikena/models"
 SUBSCRIBESTAR_URL = "https://subscribestar.adult/citrus-models"
 
+# Tools page links (checked 2026-10-08; Stability Matrix lists the original Forge as legacy)
+STABILITY_MATRIX_URL = "https://github.com/LykosAI/StabilityMatrix"
+STABILITY_MATRIX_INSTALL_URL = (
+    "https://github.com/LykosAI/StabilityMatrix/blob/main/docs/getting-started/installation.md"
+)
+FORGE_NEO_URL = "https://github.com/Haoming02/sd-webui-forge-classic/tree/neo"
+COMFYUI_URL = "https://github.com/Comfy-Org/ComfyUI"
+VLCAPTIONER_URL = "https://github.com/Ikena1992/VLCaptioner"
+KOHYA_URL = "https://github.com/bmaltais/kohya_ss"
+
 # File paths
 ASSET_SORRY = "./assets/mecha_sorry.png"
 ASSET_CONFUSED = "./assets/mecha_confused.png"
@@ -595,7 +605,7 @@ async def anonsend(interaction: Interaction, file: Attachment) -> None:
             os.remove(temp_file)
 
 
-@client.tree.command(name="help", description="How to use MechaHassaku, its commands, and Ikena's citrus models")
+@client.tree.command(name="help", description="How to use MechaHassaku, its commands, tools, and Ikena's citrus models")
 async def help_command(interaction: Interaction) -> None:
     """Display help information (only the user who asked sees it)."""
     await interaction.response.send_message(
@@ -615,7 +625,40 @@ def _help_base(title: str) -> Embed:
 
 
 def build_help_page(page: str) -> Embed:
-    """Build one help page: "usage", "commands" or "about"."""
+    """Build one help page: "usage", "commands", "tools" or "about"."""
+    if page == "tools":
+        embed = _help_base("Tools & getting started")
+        embed.add_field(
+            name="🧰 Easiest way to start",
+            value=(
+                f"[Stability Matrix]({STABILITY_MATRIX_URL}) installs Forge Neo, ComfyUI and more in one click.\n"
+                f"Follow the [installation guide]({STABILITY_MATRIX_INSTALL_URL})."
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="🎨 Generate",
+            value=(
+                f"[Forge Neo]({FORGE_NEO_URL}) — simple web UI\n"
+                f"[ComfyUI]({COMFYUI_URL}) — node-based, most flexible"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="🏷️ Train your own LoRA",
+            value=(
+                f"[VLCaptioner]({VLCAPTIONER_URL}) by Ikena — captions and Danbooru-style tags for datasets\n"
+                f"[Kohya GUI]({KOHYA_URL}) — training"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📦 Models",
+            value="[Civitai](https://civitai.com) · [Hugging Face](https://huggingface.co)",
+            inline=False
+        )
+        return embed
+
     if page == "commands":
         embed = _help_base("Commands")
         embed.add_field(
@@ -690,9 +733,11 @@ class HelpView(discord.ui.View):
 
     def __init__(self):
         super().__init__(timeout=600)
-        self.add_item(discord.ui.Button(label="Civitai", style=discord.ButtonStyle.url, url=CIVITAI_URL, emoji="🎨"))
         self.add_item(discord.ui.Button(
-            label="SubscribeStar", style=discord.ButtonStyle.url, url=SUBSCRIBESTAR_URL, emoji="🍋"
+            label="Civitai", style=discord.ButtonStyle.url, url=CIVITAI_URL, emoji="🎨", row=1
+        ))
+        self.add_item(discord.ui.Button(
+            label="SubscribeStar", style=discord.ButtonStyle.url, url=SUBSCRIBESTAR_URL, emoji="🍋", row=1
         ))
 
     async def _show(self, interaction: Interaction, page: str) -> None:
@@ -705,6 +750,10 @@ class HelpView(discord.ui.View):
     @discord.ui.button(label="Commands", emoji="⌨️", style=discord.ButtonStyle.blurple, row=0)
     async def commands_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
         await self._show(interaction, "commands")
+
+    @discord.ui.button(label="Tools", emoji="🧰", style=discord.ButtonStyle.blurple, row=0)
+    async def tools_button(self, interaction: Interaction, button: discord.ui.Button) -> None:
+        await self._show(interaction, "tools")
 
     @discord.ui.button(label="About citrus models", emoji="🍋", style=discord.ButtonStyle.blurple, row=0)
     async def about_button(self, interaction: Interaction, button: discord.ui.Button) -> None:

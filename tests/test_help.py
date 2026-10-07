@@ -6,7 +6,7 @@ import main
 
 
 class HelpPagesTest(unittest.TestCase):
-    PAGES = ("usage", "commands", "about")
+    PAGES = ("usage", "commands", "tools", "about")
 
     def test_pages_fit_discord_limits(self):
         for page in self.PAGES:
@@ -23,7 +23,8 @@ class HelpPagesTest(unittest.TestCase):
         for page in self.PAGES:
             text = str(main.build_help_page(page).to_dict()).lower()
             with self.subTest(page=page):
-                for outdated in ("patreon", "imageparameters", "stable diffusion", "rickroll", "dqw4w9wgxcq"):
+                for outdated in ("patreon", "imageparameters", "stable diffusion", "rickroll", "dqw4w9wgxcq",
+                                 "youtube", "wd14", "toriato", "lllyasviel", "comfyanonymous", "a1111-web-ui-installer"):
                     self.assertNotIn(outdated, text)
 
     def test_usage_page_points_to_auto_share_channel(self):
@@ -32,13 +33,21 @@ class HelpPagesTest(unittest.TestCase):
         self.assertIn("/checkparameters", text)
 
 
+class ToolsPageTest(unittest.TestCase):
+    def test_links(self):
+        text = str(main.build_help_page("tools").to_dict())
+        for url in (main.STABILITY_MATRIX_URL, main.STABILITY_MATRIX_INSTALL_URL, main.FORGE_NEO_URL,
+                    main.COMFYUI_URL, main.VLCAPTIONER_URL):
+            self.assertIn(url, text)
+
+
 class HelpViewTest(unittest.IsolatedAsyncioTestCase):
     async def test_buttons(self):
         view = main.HelpView()
         labels = [item.label for item in view.children]
         self.assertEqual(
             sorted(labels),
-            sorted(["How to use", "Commands", "About citrus models", "Civitai", "SubscribeStar"])
+            sorted(["How to use", "Commands", "Tools", "About citrus models", "Civitai", "SubscribeStar"])
         )
         urls = {item.label: item.url for item in view.children if item.url}
         self.assertEqual(urls, {"Civitai": main.CIVITAI_URL, "SubscribeStar": main.SUBSCRIBESTAR_URL})
