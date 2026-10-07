@@ -11,9 +11,8 @@ import io
 import math
 import time
 import pprint
-import datetime
+import logging
 from typing import Optional, Tuple, Dict, Any, Callable
-from dotenv import load_dotenv
 
 import discord
 from discord.ext import commands
@@ -24,6 +23,10 @@ from PIL import Image
 from module.MechaHassakuException import MechaHassakuError
 from module.parser import parse_generation_parameters, parse_novelai_parameters
 from module.metadata import has_parameters, read_image_metadata
+
+# Goes to the root logger that discord.py sets up in client.run (journald on the VM).
+# Never log prompt contents.
+log = logging.getLogger("mechahassaku")
 
 
 # ==================== Configuration ====================
@@ -44,6 +47,7 @@ RE_MESSAGE_LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+|@me)/(\d+)/(\d
 
 CIVITAI_URL = "https://civitai.com/user/Ikena/models"
 SUBSCRIBESTAR_URL = "https://subscribestar.adult/citrus-models"
+SEAART_URL = "https://www.seaart.ai/ja/user/Ikena"
 
 # Tools page links (checked 2026-10-08; Stability Matrix lists the original Forge as legacy)
 STABILITY_MATRIX_URL = "https://github.com/LykosAI/StabilityMatrix"
@@ -65,9 +69,9 @@ class MechaHassakuBot(commands.Bot):
         # Register slash commands with Discord. Runs once per process start, i.e. on each deploy.
         try:
             synced = await self.tree.sync()
-            print(f"Synced {len(synced)} slash commands")
+            log.info("Synced %d slash commands", len(synced))
         except Exception as e:
-            print(f"Error syncing slash commands: {e}")
+            log.error("Error syncing slash commands: %s", e)
 
 
 # Bot setup
@@ -82,10 +86,7 @@ async def on_ready() -> None:
     """Initialize bot on startup."""
     await client.change_presence(activity=discord.CustomActivity(name=BOT_STATUS))
 
-    print("------------------------------------------------")
-    print(f"Bot successfully deployed\nSession started at {datetime.datetime.now()}")
-    print(f"Online as {client.user}")
-    print("------------------------------------------------")
+    log.info("Online as %s", client.user)
 
 
 @client.event
@@ -110,15 +111,34 @@ async def on_message(message: discord.Message) -> None:
         return
     
     start_time = time.time()
-    print(message.attachments)
     await analyze_all_attachments(message)
-    elapsed_time = time.time() - start_time
-    print(f"Execution time: {elapsed_time:.2f} seconds")
+    log.info("Auto-share analysis took %.2fs", time.time() - start_time)
 
 
 # ==================== Embed Creation ====================
-def add_big_field(embed: Embed, name: str, txt: str, inline: bool = False) -> None:
+EMBED_TOTAL_LIMIT = 6000    # Discord limit for all text in one embed
+EMBED_MAX_FIELDS = 25
+THUMBNAIL_SIZE = (512, 512)
+THUMBNAIL_NAME = "thumbnail.png"
+# When an embed is too long, prompts are cut to these lengths in turn
+PROMPT_CUT_STEPS = (3000, 2000, 1200, 600, 300)
+CUT_NOTE = "\n… (cut — full text in fullParameters.txt)"
+
+
+def _add_field(embed: Embed, name: str, value: Any, inline: bool = True) -> None:
+    """Add a field unless the value is empty (Discord rejects empty field values)."""
+    if value is None:
+        return
+    text = str(value)
+    if text.strip():
+        embed.add_field(name=name, value=text, inline=inline)
+
+
+def add_big_field(embed: Embed, name: str, txt: Any, inline: bool = False) -> None:
     """Add a field to embed, splitting into multiple fields if text exceeds limit."""
+    txt = "" if txt is None else str(txt)
+    if not txt.strip():
+        return
     if len(txt) < EMBED_FIELD_LIMIT:
         embed.add_field(name=name, value=txt, inline=inline)
     else:
@@ -130,46 +150,76 @@ def add_big_field(embed: Embed, name: str, txt: str, inline: bool = False) -> No
             embed.add_field(name=f"{name}({i})", value=text_value, inline=inline)
 
 
-def create_pnginfo_view(pnginfo_kv: Dict[str, Any], icon_path: str) -> tuple[Embed, File]:
-    """Create an embed displaying PNG generation parameters."""
+def _cut(text: Any, limit: Optional[int]) -> Any:
+    if limit is None or not isinstance(text, str) or len(text) <= limit:
+        return text
+    return text[:limit] + CUT_NOTE
+
+
+def _fits(embed: Embed) -> bool:
+    return len(embed) <= EMBED_TOTAL_LIMIT and len(embed.fields) <= EMBED_MAX_FIELDS
+
+
+def create_pnginfo_view(pnginfo_kv: Dict[str, Any], thumbnail: Optional[File] = None) -> Embed:
+    """Create an embed displaying generation parameters.
+
+    Long prompts are cut step by step until the embed fits Discord's limits;
+    the full text is always in the attached fullParameters.txt.
+    """
     tags = _detect_tags(pnginfo_kv)
     title_tags = "   ".join(f"` {tag} `" for tag in tags) if tags else "FAILED TO GET TAGS"
-    
-    embed = Embed(
-        title=f"Image Prompt & Settings :tools:\n{title_tags}",
-        color=0x7101fa
-    )
-    
-    # Only add embed fields if not ComfyUI
-    if pnginfo_kv.get("ui_type") != "comfyui":
-        _add_prompt_fields(embed, pnginfo_kv)
-        _add_generation_fields(embed, pnginfo_kv)
-        _add_hires_fields(embed, pnginfo_kv)
-        _add_model_fields(embed, pnginfo_kv)
-    else:
-        # For ComfyUI, just set the description
-        embed.description = "ComfyUI workflow detected. Full metadata attached below :arrow_double_down:"
-    
-    # Remove metadata keys not needed in embed
-    for key in ['ComfyUI AI Params', 'Novel AI Params', 'Generation date', 'Generation time', 'SwarmUI version', 'Aspect ratio']:
-        pnginfo_kv.pop(key, None)
-    
-    ifile = File(icon_path)
-    url = "attachment://" + icon_path[2:]
-    embed.set_thumbnail(url=url)
-    
-    return embed, ifile
+
+    for prompt_limit in (None,) + PROMPT_CUT_STEPS:
+        embed = Embed(
+            title=f"Image Prompt & Settings :tools:\n{title_tags}",
+            color=0x7101fa
+        )
+        if pnginfo_kv.get("ui_type") != "comfyui":
+            _add_prompt_fields(embed, pnginfo_kv, prompt_limit)
+            _add_generation_fields(embed, pnginfo_kv)
+            _add_hires_fields(embed, pnginfo_kv)
+            _add_model_fields(embed, pnginfo_kv, prompt_limit)
+        else:
+            embed.description = "ComfyUI workflow detected. Full metadata attached below :arrow_double_down:"
+        if _fits(embed):
+            break
+
+    if thumbnail is not None:
+        embed.set_thumbnail(url=f"attachment://{thumbnail.filename}")
+    return embed
+
+
+def make_thumbnail(image: Image.Image) -> File:
+    """Small PNG copy of the image for the embed thumbnail, built in memory."""
+    thumb = image.copy()
+    thumb.thumbnail(THUMBNAIL_SIZE)
+    if thumb.mode not in ("RGB", "RGBA"):
+        thumb = thumb.convert("RGBA")
+    buf = io.BytesIO()
+    thumb.save(buf, "PNG")
+    buf.seek(0)
+    return File(buf, filename=THUMBNAIL_NAME)
+
+
+# Anima: Cosmos-based anime model using a Qwen3 0.6B text encoder and the Qwen-Image VAE.
+# Forge Neo records those as "Module N: qwen_3_06b_..." / "qwen_image_vae".
+RE_ANIMA_TEXT_ENCODER = re.compile(r"qwen_?3_?0\.?6b", re.IGNORECASE)
+# "anima" in a model name, but not other model families that start the same way
+RE_ANIMA_MODEL_NAME = re.compile(r"anima(?!gine|pencil|te)", re.IGNORECASE)
+
+
+def _is_anima(kv: Dict[str, Any]) -> bool:
+    modules = " ".join(str(v) for k, v in kv.items() if k.startswith("Module"))
+    return bool(RE_ANIMA_TEXT_ENCODER.search(modules) or RE_ANIMA_MODEL_NAME.search(str(kv.get('Model', ''))))
 
 
 def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
     """Detect and return tags based on image metadata."""
     tags = []
-    print("DEBUG")
-    print(pnginfo_kv)
-    
+
     # Detect UI type
     prompt_val = str(pnginfo_kv.get('Prompt', ''))
-    
+
     if 'sui_image_params' in prompt_val or 'SwarmUI version' in pnginfo_kv:
         tags.append('SWARM UI')
     elif 'ComfyUI AI Params' in pnginfo_kv:
@@ -184,8 +234,10 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
         tags.append('STEALTH')
 
     # Detect model type
-    model = pnginfo_kv.get('Model', '').lower()
-    if model:
+    model = str(pnginfo_kv.get('Model', '')).lower()
+    if _is_anima(pnginfo_kv):
+        tags.append('ANIMA')
+    elif model:
         if any(keyword in model for keyword in ['illustrious', 'noob', 'wai']):
             tags.append('ILLUSTRIOUS')
         elif 'xl' in model or 'sdxl' in model:
@@ -194,30 +246,28 @@ def _detect_tags(pnginfo_kv: Dict[str, Any]) -> list[str]:
             tags.append('PONY')
         elif 'flux' in model:
             tags.append('FLUX')
-    
+
     # Detect LoRA type
-    prompt = pnginfo_kv.get('Prompt', '').lower()
+    prompt = prompt_val.lower()
     if 'lora' in prompt or '<lora:' in prompt or 'LoRAs' in pnginfo_kv:
         tags.append('LORA')
     elif 'locon' in prompt:
         tags.append('LOCON')
     elif 'loha' in prompt:
         tags.append('LOHA')
-    
+
     # Detect upscaling
     if 'Hires upscaler' in pnginfo_kv or 'Refiner steps' in pnginfo_kv:
         tags.append('HIRES')
-    
+
     return tags
 
 
 
-def _add_prompt_fields(embed: Embed, kv: Dict[str, Any]) -> None:
+def _add_prompt_fields(embed: Embed, kv: Dict[str, Any], limit: Optional[int] = None) -> None:
     """Add prompt-related fields to embed."""
-    if 'Prompt' in kv:
-        add_big_field(embed, '__Prompt__ :keyboard:', kv['Prompt'], False)
-    if 'Negative prompt' in kv:
-        add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', kv['Negative prompt'], False)
+    add_big_field(embed, '__Prompt__ :keyboard:', _cut(kv.get('Prompt'), limit), False)
+    add_big_field(embed, '__Negative Prompt__ :no_entry_sign:', _cut(kv.get('Negative prompt'), limit), False)
 
 
 def _add_generation_fields(embed: Embed, kv: Dict[str, Any]) -> None:
@@ -229,52 +279,41 @@ def _add_generation_fields(embed: Embed, kv: Dict[str, Any]) -> None:
         ('Steps', '__Steps__ :person_walking:', True),
         ('Clip skip', '__Clip Skip__ :paperclip:', True),
     ]
-    
+
     for key, name, inline in fields:
-        if key in kv:
-            embed.add_field(name=name, value=kv[key], inline=inline)
+        _add_field(embed, name, kv.get(key), inline)
     # Add scheduler if present (SwarmUI/ComfyUI)
-    if 'Schedule type' in kv and kv['Schedule type'] != 'Automatic':
-        embed.add_field(name='__Scheduler__ :calendar:', value=kv['Schedule type'], inline=True)
+    if kv.get('Schedule type') != 'Automatic':
+        _add_field(embed, '__Scheduler__ :calendar:', kv.get('Schedule type'))
     # Image size (special handling)
-    if 'Size-1' in kv and 'Size-2' in kv:
-        size = f"{kv['Size-1']}x{kv['Size-2']}"
-        embed.add_field(name='__Image Size__ :straight_ruler:', value=size, inline=True)
+    if kv.get('Size-1') and kv.get('Size-2'):
+        _add_field(embed, '__Image Size__ :straight_ruler:', f"{kv['Size-1']}x{kv['Size-2']}")
 
 
 def _add_hires_fields(embed: Embed, kv: Dict[str, Any]) -> None:
     """Add hires fix fields to embed."""
-    if 'Hires upscaler' not in kv:
+    if not kv.get('Hires upscaler'):
         return
-    
-    embed.add_field(name='__Hires. Upscaler__ :arrow_double_up:', value=kv['Hires upscaler'], inline=True)
-    
-    if 'Hires upscale' in kv:
-        embed.add_field(name='__Hires. Upscale__ :eight_spoked_asterisk:', value=kv['Hires upscale'], inline=True)
-    
-    if 'Denoising strength' in kv:
-        embed.add_field(name='__Denoising Strength__ :muscle:', value=kv['Denoising strength'], inline=True)
+
+    _add_field(embed, '__Hires. Upscaler__ :arrow_double_up:', kv.get('Hires upscaler'))
+    _add_field(embed, '__Hires. Upscale__ :eight_spoked_asterisk:', kv.get('Hires upscale'))
+    _add_field(embed, '__Denoising Strength__ :muscle:', kv.get('Denoising strength'))
 
 
-def _add_model_fields(embed: Embed, kv: Dict[str, Any]) -> None:
+def _add_model_fields(embed: Embed, kv: Dict[str, Any], limit: Optional[int] = None) -> None:
     """Add model-related fields to embed."""
     model = kv.get('Model')
     if model:
-        is_xl = any(tag in model.upper() for tag in ['XL', 'SDXL'])
+        is_xl = any(tag in str(model).upper() for tag in ['XL', 'SDXL'])
         name = '__Model__ :regional_indicator_x::regional_indicator_l:' if is_xl else '__Model__ :art:'
-        embed.add_field(name=name, value=model, inline=True)
-    
-    if 'Model hash' in kv:
-        embed.add_field(name='__Model Hash__ :key:', value=kv['Model hash'], inline=True)
-    
-    # Add VAE if present
-    if 'VAE' in kv:
-        embed.add_field(name='__VAE__ :file_folder:', value=kv['VAE'], inline=True)
-    
+        _add_field(embed, name, model)
+
+    _add_field(embed, '__Model Hash__ :key:', kv.get('Model hash'))
+    _add_field(embed, '__VAE__ :file_folder:', kv.get('VAE'))
+
     # Add LoRAs if present (ComfyUI specific)
-    if 'LoRAs' in kv:
-        add_big_field(embed, '__LoRAs__ :jigsaw:', kv['LoRAs'], inline=False)
-    
+    add_big_field(embed, '__LoRAs__ :jigsaw:', _cut(kv.get('LoRAs'), limit), inline=False)
+
 
 
 # ==================== Image Analysis ====================
@@ -283,22 +322,15 @@ async def analyze_attachment_and_reply(
     response_destination: Callable,
     ephemeral: bool = False
 ) -> None:
-    """Analyze a single image attachment and reply with parameters."""
-    if not attachment.content_type.startswith("image"):
+    """Analyze a single image attachment and reply with parameters. Nothing is written to disk."""
+    if not attachment.content_type or not attachment.content_type.startswith("image"):
         return
-    
-    temp_file_name = None
-    text_file_name = None
-    
+
     try:
         downloaded_byte = await attachment.read()
-        
+
         with io.BytesIO(downloaded_byte) as image_data:
             with Image.open(image_data) as image:
-                # Save temporary file
-                temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
-                image.save(temp_file_name)
-                
                 # Text chunks first; hidden pixel data (stealth pnginfo) only when they have nothing
                 data, stealth = read_image_metadata(image)
 
@@ -311,60 +343,51 @@ async def analyze_attachment_and_reply(
                 ed = _parse_parameters(data)
                 if stealth:
                     ed["Stealth"] = stealth.describe()
-                
-                # Create text file with full parameters
-                text_file_name = f"./params_{int(time.time())}.txt"
-                with open(text_file_name, "w", encoding="utf-8") as f:
-                    pp = pprint.PrettyPrinter(stream=f, indent=4)
-                    pp.pprint(data)
-                
-                # Debug output
-                print("\n\n", ed)
-                
-                # Create and send embed
-                embed, ifile = create_pnginfo_view(ed, temp_file_name)
-                text_file = File(text_file_name, filename="fullParameters.txt")
-                
-                if ephemeral:
-                    await response_destination(embed=embed, file=ifile, ephemeral=ephemeral)
-                    await response_destination(file=text_file, ephemeral=ephemeral)
-                else:
-                    await response_destination(embed=embed, file=ifile)
-                    await response_destination(file=text_file)
-                    
+
+                thumbnail = make_thumbnail(image)
+
+        log.info("Analyzed %s (%s%s)", attachment.filename, ed.get("ui_type"), ", stealth" if stealth else "")
+
+        # Full parameters as an attachment, built in memory
+        text_file = File(
+            io.BytesIO(pprint.pformat(data, indent=4).encode("utf-8")), filename="fullParameters.txt"
+        )
+        embed = create_pnginfo_view(ed, thumbnail)
+
+        if ephemeral:
+            await response_destination(embed=embed, file=thumbnail, ephemeral=ephemeral)
+            await response_destination(file=text_file, ephemeral=ephemeral)
+        else:
+            await response_destination(embed=embed, file=thumbnail)
+            await response_destination(file=text_file)
+
     except Exception as err:
-        print(err)
+        log.exception("Failed to analyze %s", attachment.filename)
         _handle_analysis_error(err, response_destination)
-        
-    finally:
-        # Cleanup temporary files
-        for filename in [temp_file_name, text_file_name]:
-            if filename and os.path.isfile(filename):
-                os.remove(filename)
 
 
 def _parse_parameters(data: Dict[str, Any]) -> Dict[str, Any]:
     """Parse generation parameters from image metadata."""
     ed = {}
-    
+
     # WebUI format
     if "parameters" in data:
         ed = parse_generation_parameters(data["parameters"])
         ed["ui_type"] = "webui"
-    
+
     # ComfyUI format
     elif "prompt" in data:
         ed["ui_type"] = "comfyui"
         ed["ComfyUI AI Params"] = data["prompt"]
         # Minimal fields for embed
         ed["Prompt"] = "ComfyUI workflow detected. Full metadata attached below :arrow_double_down: "
-    
+
     # Novel AI format
     elif "Comment" in data:
         ed = parse_novelai_parameters(data)
         ed["Novel AI Params"] = True
         ed["ui_type"] = "novelai"
-    
+
     return ed
 
 
@@ -375,10 +398,9 @@ def _handle_analysis_error(err: Exception, response_destination: Callable) -> No
         KeyError: ">>> > Sorry, but I couldn't retrieve parameters from the shared image; it seems the EXIF data is either missing or in an incorrect format.",
         AttributeError: ">>> > Sorry, the linked message is too old for me to access.",
     }
-    
+
     message = error_messages.get(type(err), ">>> > Some error due to my stupid masters' incompetence.")
-    print("Error details:", err)
-    
+
     sorry_image = File(ASSET_SORRY)
     raise MechaHassakuError(message, sorry_image) from None
 
@@ -386,86 +408,70 @@ def _handle_analysis_error(err: Exception, response_destination: Callable) -> No
 async def analyze_all_attachments(message: discord.Message) -> None:
     """Analyze all image attachments in a message."""
     for attachment in message.attachments:
-        if not attachment.content_type.startswith("image"):
+        if not attachment.content_type or not attachment.content_type.startswith("image"):
             continue
-        
+
         msg = await message.reply("Analyzing image >>> <a:kururing:1113757022257696798> ", mention_author=False)
-        
+
         try:
             await analyze_attachment_and_reply(attachment, message.channel.send)
             await msg.delete()
         except MechaHassakuError as err:
-            print(err)
             await msg.delete()
             await msg.channel.send(err.message, file=err.file)
 
 
 # ==================== Model Request Detection ====================
+RE_MODEL_QUESTION = re.compile(
+    r"(which\s+one|which\s+model|the\s+model|what\s+model|model\s+pls|model\s+please)",
+    re.IGNORECASE
+)
+
+
 async def model_request_detector(message: discord.Message) -> None:
-    """Detect if a message is asking about a model and respond."""
-    pattern = re.compile(
-        r"(which\s+one|which\s+model|the\s+model|what\s+model|model\s+pls|model\s+please)",
-        re.IGNORECASE
-    )
-    
-    if not pattern.search(message.content):
-        print("no")
+    """Detect a reply asking which model an image used, and answer it."""
+    if message.reference is None or not RE_MODEL_QUESTION.search(message.content):
         return
-    
-    print("triggered")
-    
-    if message.reference is None:
-        return
-    
+
     try:
         referenced_message = await message.channel.fetch_message(message.reference.message_id)
-        print("got reference message")
         await model_request_handler(referenced_message, referenced_message.channel.send)
-    except Exception as e:
-        print(f"Error in model request detector: {e}")
+    except Exception:
+        log.exception("Model request failed")
+
+
+def model_answer(ed: Dict[str, Any]) -> Optional[str]:
+    """Reply text for "which model?", or None when the image does not tell (e.g. ComfyUI)."""
+    model = ed.get('Model')
+    if ed.get('ui_type') == 'comfyui' or not model:
+        return None
+    hash_part = f" with the hash `{ed['Model hash']}`" if ed.get('Model hash') else ""
+    return (
+        f">>> The model used appears to be `{model}`{hash_part} according to the image's metadata.\n"
+        "Tip: for all the settings, use /checkparameters with a link to the message containing this image!"
+    )
 
 
 async def model_request_handler(message: discord.Message, response_destination: Callable) -> None:
-    """Handle model information request for a message."""
-    print("started handler function")
-    
+    """Answer which model the images in a message used (WebUI, SwarmUI, NovelAI, stealth)."""
     for attachment in message.attachments:
-        if not attachment.content_type.startswith("image"):
+        if not attachment.content_type or not attachment.content_type.startswith("image"):
             continue
-        
+
         msg = await message.reply("Taking a look....... <a:kururing:1113757022257696798> ")
-        temp_file_name = None
-        
+
         try:
             downloaded_byte = await attachment.read()
-            
             with io.BytesIO(downloaded_byte) as image_data:
                 with Image.open(image_data) as image:
-                    temp_file_name = f"./t{int(round(time.time() * 1000))}.png"
-                    image.save(temp_file_name)
-                    print("saved image locally")
-                    
-                    data = image.info
-                    ed = parse_generation_parameters(data["parameters"])
-                    print("got metadata")
-                    print("\n\n", ed)
-                    
-                    response_text = (
-                        f">>> The model used appears to be `{ed['Model']}` with the hash "
-                        f"`{ed['Model hash']}` according to the image's metadata.\n"
-                        f"Tip: If you want all the gen parameters, run /checkparameters with "
-                        f"a link to the message containing this image!"
-                    )
-                    await response_destination(response_text)
-                    await msg.delete()
-                    
-        except Exception as err:
-            await msg.delete()
-            print("Model Request Handler error:", err)
-            
+                    data, _ = read_image_metadata(image)
+            answer = model_answer(_parse_parameters(data)) if has_parameters(data) else None
+            if answer:
+                await response_destination(answer)
+        except Exception:
+            log.exception("Model request handler failed for %s", attachment.filename)
         finally:
-            if temp_file_name and os.path.isfile(temp_file_name):
-                os.remove(temp_file_name)
+            await msg.delete()
 
 
 # ==================== Slash Commands ====================
@@ -543,14 +549,12 @@ async def checkparameters(
                     ephemeral=private
                 )
             except MechaHassakuError as err:
-                print(err)
                 await interaction.followup.send(err.message, file=err.file, ephemeral=private)
 
-        elapsed_time = time.time() - start_time
-        print(f"Execution time: {elapsed_time:.2f} seconds")
+        log.info("/checkparameters took %.2fs", time.time() - start_time)
 
-    except Exception as err:
-        print(err)
+    except Exception:
+        log.exception("/checkparameters failed")
         await interaction.followup.send(
             ">>> > Some error due to my stupid masters' incompetence.",
             file=File(ASSET_SORRY),
@@ -564,21 +568,20 @@ async def checkparameters(
 )
 @app_commands.describe(file="The image to post")
 async def anonsend(interaction: Interaction, file: Attachment) -> None:
-    """Send an image anonymously."""
-    temp_file = "aimage.png"
-
+    """Send an image anonymously (re-encoded in memory, which also drops its metadata)."""
     try:
         user_id = interaction.user.id
         channel = await client.fetch_channel(BOT_LOG_CHANNEL_ID)
 
-        # Download and save image
         download_byte = await file.read()
         with io.BytesIO(download_byte) as image_data:
             with Image.open(image_data) as image:
-                image.save(temp_file)
+                buf = io.BytesIO()
+                image.save(buf, "PNG")
+                buf.seek(0)
 
                 await client.fetch_channel(interaction.channel_id)
-                afile = File(temp_file)
+                afile = File(buf, filename="image.png")
 
                 await interaction.response.send_message(
                     "Image sent anonymously!\n Only you can see this message :man_detective:",
@@ -592,17 +595,13 @@ async def anonsend(interaction: Interaction, file: Attachment) -> None:
                     f"User ID {user_id} sent an image anonymously! Jump to message: {m.jump_url}"
                 )
 
-    except Exception as e:
-        print(e)
+    except Exception:
+        log.exception("/anonsend failed")
         await interaction.response.send_message(
             "That file's not an image, or is it?",
             ephemeral=True,
             file=File(ASSET_CONFUSED)
         )
-
-    finally:
-        if os.path.isfile(temp_file):
-            os.remove(temp_file)
 
 
 @client.tree.command(name="help", description="How to use MechaHassaku, its commands, tools, and Ikena's citrus models")
@@ -698,7 +697,7 @@ def build_help_page(page: str) -> Embed:
         )
         embed.add_field(
             name="Support the models",
-            value="Use the Civitai and SubscribeStar buttons below.",
+            value="Use the Civitai, SubscribeStar and SeaArt buttons below.",
             inline=False
         )
         return embed
@@ -738,6 +737,9 @@ class HelpView(discord.ui.View):
         ))
         self.add_item(discord.ui.Button(
             label="SubscribeStar", style=discord.ButtonStyle.url, url=SUBSCRIBESTAR_URL, emoji="🍋", row=1
+        ))
+        self.add_item(discord.ui.Button(
+            label="SeaArt", style=discord.ButtonStyle.url, url=SEAART_URL, emoji="🌊", row=1
         ))
 
     async def _show(self, interaction: Interaction, page: str) -> None:

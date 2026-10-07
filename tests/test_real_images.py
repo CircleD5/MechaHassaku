@@ -28,6 +28,12 @@ class WebUIImageTest(unittest.TestCase):
         self.assertEqual((res["Seed"], res["Steps"], res["Sampler"]), ("4269492586", "32", "Euler a"))
         self.assertEqual((res["Size-1"], res["Size-2"]), ("960", "1536"))
 
+    def test_tagged_as_anima(self):
+        # Forge Neo records the Qwen3 0.6B text encoder used by Anima as a Module
+        import main
+        data, _ = read_image_metadata(Image.open(WEBUI_IMAGE))
+        self.assertIn("ANIMA", main._detect_tags(main._parse_parameters(data)))
+
 
 @unittest.skipUnless(os.path.exists(NOVELAI_V5_IMAGE), "real NovelAI V5 image not present")
 class NovelAIV5ImageTest(unittest.TestCase):
