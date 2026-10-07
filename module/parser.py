@@ -112,6 +112,77 @@ def parse_swarmui_parameters(param_str: str) -> dict:
     
     return res
 
+# ==================== NovelAI Parser ====================
+RE_NAI_SOURCE_HASH = re.compile(r"\s+([0-9A-Fa-f]{8})$")
+
+# Model hash -> name, for images whose Source is an internal enum name
+# (e.g. "DiffusionModelMetaName.NAIv4next"). Taken from nai-meta (Miint-Sunny/nai-meta).
+NAI_MODEL_HASHES = {
+    'C1E1DE52': 'NovelAI Diffusion V3',
+    'F6E18726': 'NovelAI Diffusion V4', '79F47848': 'NovelAI Diffusion V4', '4F49EC75': 'NovelAI Diffusion V4',
+    'C1CCBA86': 'NovelAI Diffusion V4', '37442FCA': 'NovelAI Diffusion V4',
+    '4BDE2A90': 'NovelAI Diffusion V4.5', '1229B44F': 'NovelAI Diffusion V4.5',
+    'C02D4F98': 'NovelAI Diffusion V4.5', '5BB76870': 'NovelAI Diffusion V4.5',
+    '0ADF9AB7': 'NovelAI Diffusion V5', '657484A5': 'NovelAI Diffusion V5', 'DB276663': 'NovelAI Diffusion V5',
+}
+
+
+def _nai_captions(caption: dict, label: str) -> str:
+    """Join the base caption and character captions of a V4+ prompt object."""
+    parts = []
+    base = (caption.get('base_caption') or '').strip()
+    if base:
+        parts.append(base)
+    for i, char in enumerate(caption.get('char_captions') or [], 1):
+        text = (char.get('char_caption') or '').strip()
+        if text:
+            parts.append(f"{label} {i}: {text}")
+    return "\n\n".join(parts)
+
+
+def parse_novelai_parameters(info: dict) -> dict:
+    """
+    Parse NovelAI metadata (V3, V4, V4.5, V5).
+    `info` holds the PNG text chunks: Description, Source, Comment (JSON string or dict), ...
+    V4 and later keep the prompt in v4_prompt.caption; character prompts are appended as "Character N: ...".
+    """
+    comment = info.get('Comment') or {}
+    if isinstance(comment, str):
+        comment = json.loads(comment)
+
+    v4_caption = (comment.get('v4_prompt') or {}).get('caption') or {}
+    v4_negative = (comment.get('v4_negative_prompt') or {}).get('caption') or {}
+
+    # V4+ writes the base caption to both `prompt` and v4_prompt; prefer v4_prompt to get character prompts too
+    prompt = _nai_captions(v4_caption, "Character") or comment.get('prompt') or info.get('Description') or ''
+    negative = _nai_captions(v4_negative, "Character") or comment.get('uc') or ''
+
+    source = str(info.get('Source') or '')
+    match = RE_NAI_SOURCE_HASH.search(source)
+    model_hash = comment.get('model_hash') or (match.group(1) if match else '')
+    model = comment.get('model_name') or (source[:match.start()] if match else source)
+    if model_hash and (not model or model.startswith('DiffusionModel')):
+        model = NAI_MODEL_HASHES.get(model_hash.upper(), model)
+
+    res = {
+        'Prompt': prompt,
+        'Negative prompt': negative,
+        'Seed': comment.get('seed'),
+        'Steps': comment.get('steps'),
+        'Sampler': comment.get('sampler'),
+        'CFG scale': comment.get('scale'),
+        'Schedule type': comment.get('noise_schedule'),
+        'Model': model,
+        'Model hash': model_hash,
+    }
+    if comment.get('width') and comment.get('height'):
+        res['Size-1'] = comment['width']
+        res['Size-2'] = comment['height']
+
+    # Drop empty values and stringify the rest (embed field values must be non-empty strings)
+    return {k: str(v) for k, v in res.items() if v not in (None, '')}
+
+
 # ==================== Main Parsing Function ====================
 def parse_generation_parameters(param_str: str) -> dict:
     """
